@@ -31,4 +31,6 @@ tempo_data/
 .env
 __pycache__/
 
-
+# ambiente para rodar
+venv/
+.venv/

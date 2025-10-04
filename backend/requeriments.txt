@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+harmony-py
+xarray
+numpy
+pandas
+requests
+scikit-learn
+netCDF4
+h5netcdf
+h5py
+python-dotenv
