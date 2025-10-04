@@ -29,4 +29,6 @@ tempo_data/
 *.h5
 *.hdf5
 .env
+__pycache__/
+
 
