@@ -12,65 +12,60 @@ export interface TempoMeta {
   timeout_s?: number;
   fallback_used?: boolean;
 }
+export interface GroundSample {
+  aqi?: number; no2?: number; o3?: number; pm25?: number; pm10?: number;
+  time_local?: string; station?: string; station_geo?: [number, number];
+  attribution?: string;
+}
 export interface ForecastPayload {
   lat: number; lon: number; no2_seed: number;
   risk: "low" | "moderate" | "high";
   ratio_peak_over_seed: number;
   forecast: ForecastPoint[]; weather: WeatherPoint[];
-  tempo: TempoMeta;
+  tempo: TempoMeta; ground?: GroundSample;
 }
 
 const BASE = (import.meta.env.VITE_API_BASE as string) || "http://127.0.0.1:8000";
 
 function timeoutController(ms: number) {
   const ctrl = new AbortController();
-  const id = setTimeout(() => {
-    // defina uma razão explícita do abort (nem todos browsers expõem, mas ajuda)
-    try {
-      // navegadores modernos aceitam abort(reason)
-      (ctrl as any).abort?.("timeout");
-    } catch {
-      ctrl.abort();
-    }
-  }, ms);
-  const clear = () => clearTimeout(id);
-  return { signal: ctrl.signal, clear };
+  const id = setTimeout(() => { try { (ctrl as any).abort?.("timeout"); } catch { ctrl.abort(); } }, ms);
+  return { signal: ctrl.signal, clear: () => clearTimeout(id) };
 }
 
+type Mode = "fast" | "auto" | "cache";
+
 export async function getForecast(
-  lat: number, lon: number,
-  opts?: { start?: string; end?: string; bbox?: string; mode?: "fast"|"auto"|"cache"; timeoutMs?: number }
+  lat: number,
+  lon: number,
+  opts?: {
+    start?: string; end?: string; bbox?: string;
+    mode?: Mode; timeoutMs?: number;
+    skipNasa?: boolean; requireNasa?: boolean;
+  }
 ): Promise<ForecastPayload> {
   const q = new URLSearchParams({ lat: String(lat), lon: String(lon), mode: opts?.mode ?? "fast" });
   if (opts?.start) q.append("start", opts.start);
   if (opts?.end) q.append("end", opts.end);
   if (opts?.bbox) q.append("bbox", opts.bbox);
+  if (opts?.skipNasa) q.append("skip_nasa", "true");
+  if (opts?.requireNasa) q.append("require_nasa", "true");
 
-  const { signal, clear } = timeoutController(opts?.timeoutMs ?? 20000); // 20s
+  const { signal, clear } = timeoutController(opts?.timeoutMs ?? 30000);
   try {
     const res = await fetch(`${BASE}/forecast?${q.toString()}`, {
-      signal,
-      cache: "no-store",
-      headers: { "accept": "application/json" },
+      signal, cache: "no-store", headers: { accept: "application/json" },
     });
-
     const txt = await res.text();
     if (!res.ok) {
-      try {
-        const j = JSON.parse(txt);
-        throw new Error(j.detail ?? `API ${res.status}`);
-      } catch {
-        throw new Error(txt || `API ${res.status}`);
-      }
+      let detail: string | undefined;
+      try { detail = JSON.parse(txt).detail; } catch {}
+      throw new Error(detail || txt || `API ${res.status}`);
     }
     return JSON.parse(txt) as ForecastPayload;
   } catch (e: any) {
-    // normalizar mensagens de abort
-    if (e?.name === "AbortError" || String(e?.message || "").toLowerCase().includes("aborted")) {
-      throw new Error("Tempo esgotado ao consultar a API (timeout). Tente novamente ou use o modo Avançado.");
-    }
-    throw e;
-  } finally {
-    clear();
-  }
+    if (e?.name === "AbortError" || String(e?.message||"").toLowerCase().includes("timeout"))
+      throw new Error("Tempo esgotado ao consultar a API (timeout).");
+    throw new Error(e?.message || "Erro inesperado");
+  } finally { clear(); }
 }

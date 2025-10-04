@@ -19,8 +19,9 @@ from nasa_tempo import (
 )
 from weather_openweather import fetch_forecast, forecast_to_df, to_hourly
 from forecast import forecast_no2_24h
+from aqicn_client import fetch_nearest as aqicn_fetch
 
-app = FastAPI(title="TEMPO + Weather Forecast API", version="0.4.0")
+app = FastAPI(title="TEMPO + Weather Forecast API", version="0.5.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,6 +41,7 @@ _CACHE: Dict[tuple[float, float], tuple[float, Dict[str, Any]]] = {}
 CACHE_TTL_SECONDS = 30 * 60
 
 TEMPO_TIMEOUT_S = float(os.getenv("TEMPO_TIMEOUT_S", "8"))
+OPENWEATHER_TIMEOUT_S = float(os.getenv("OPENWEATHER_TIMEOUT_S", "8"))
 NO2_SEED_FALLBACK = float(os.getenv("NO2_SEED_FALLBACK", "3.0e15"))
 
 class ForecastPoint(BaseModel):
@@ -57,6 +59,18 @@ class WeatherPoint(BaseModel):
     rain_1h_est: float | None = None
     snow_1h_est: float | None = None
 
+class GroundSample(BaseModel):
+    aqi: int | float | None = None
+    no2: float | None = None
+    o3: float | None = None
+    pm25: float | None = None
+    pm10: float | None = None
+    time_local: str | None = None
+    station: str | None = None
+    station_geo: List[float] | None = None
+    attribution: str | None = None
+    fetched_utc: str | None = None
+
 class ForecastPayload(BaseModel):
     lat: float
     lon: float
@@ -66,6 +80,7 @@ class ForecastPayload(BaseModel):
     forecast: List[ForecastPoint]
     weather: List[WeatherPoint]
     tempo: Dict[str, Any]
+    ground: GroundSample | None = None
 
 def _round_key(lat: float, lon: float, digits: int = 4) -> tuple[float, float]:
     return (round(lat, digits), round(lon, digits))
@@ -136,7 +151,7 @@ def _fetch_tempo_robust(lat: float, lon: float, start: Optional[str], end: Optio
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "tempo-weather-api", "version": "0.4.0"}
+    return {"ok": True, "service": "tempo-weather-api", "version": "0.5.1"}
 
 @app.get("/forecast", response_model=ForecastPayload)
 def forecast(
@@ -146,44 +161,59 @@ def forecast(
     end: Optional[str] = Query(None),
     bbox: Optional[str] = Query(None),
     mode: str = Query("auto"),
+    require_nasa: bool = Query(False),
+    skip_nasa: bool = Query(False),
 ):
     key = _round_key(lat, lon)
     ts, cached = _CACHE.get(key, (0.0, None))
     if mode == "cache" and cached:
         return cached
-    if cached and (time.time() - ts) < CACHE_TTL_SECONDS and mode == "auto" and not (start or end or bbox):
+    if cached and (time.time() - ts) < CACHE_TTL_SECONDS and mode == "auto" and not (start or end or bbox or skip_nasa or require_nasa):
         return cached
     try:
         with ThreadPoolExecutor(max_workers=2) as ex:
             wx_future = ex.submit(lambda: to_hourly(forecast_to_df(fetch_forecast(lat, lon, units="metric"))))
-            if mode == "fast":
-                tempo_future = ex.submit(_fetch_tempo_fast, lat, lon, start, end, bbox)
-                try:
-                    files, start_iso, end_iso, bbox_tuple, prefer_used = tempo_future.result(timeout=TEMPO_TIMEOUT_S)
-                    no2_seed = compute_no2_seed(files[0])
-                except FuturesTimeout:
-                    no2_seed = NO2_SEED_FALLBACK
-                    files, start_iso, end_iso, bbox_tuple, prefer_used = ([], start or "", end or "", _bbox_default(lat, lon), True)
-                except Exception:
-                    no2_seed = NO2_SEED_FALLBACK
-                    files, start_iso, end_iso, bbox_tuple, prefer_used = ([], start or "", end or "", _bbox_default(lat, lon), True)
+            if skip_nasa:
+                tempo_future = None
             else:
-                tempo_future = ex.submit(_fetch_tempo_robust, lat, lon, start, end, bbox)
+                tempo_future = ex.submit(_fetch_tempo_fast if mode == "fast" else _fetch_tempo_robust, lat, lon, start, end, bbox)
+
+            try:
+                wx_hourly = wx_future.result(timeout=OPENWEATHER_TIMEOUT_S)
+            except (FuturesTimeout, Exception):
+                raise HTTPException(status_code=503, detail="OpenWeather timeout/erro")
+
+            if skip_nasa:
+                files, start_iso, end_iso, bbox_tuple, prefer_used, fallback_used, no2_seed = [], start or "", end or "", _bbox_default(lat, lon), True, True, NO2_SEED_FALLBACK
+            else:
                 try:
                     files, start_iso, end_iso, bbox_tuple, prefer_used = tempo_future.result(timeout=TEMPO_TIMEOUT_S)
                     no2_seed = compute_no2_seed(files[0])
-                except FuturesTimeout:
+                    fallback_used = False
+                except (FuturesTimeout, Exception):
                     no2_seed = NO2_SEED_FALLBACK
-                    files, start_iso, end_iso, bbox_tuple, prefer_used = ([], start or "", end or "", _bbox_default(lat, lon), True)
-                except Exception:
-                    no2_seed = NO2_SEED_FALLBACK
-                    files, start_iso, end_iso, bbox_tuple, prefer_used = ([], start or "", end or "", _bbox_default(lat, lon), True)
-            wx_hourly = wx_future.result()
+                    start_iso = start or ""
+                    end_iso = end or ""
+                    bbox_tuple = _bbox_default(lat, lon)
+                    prefer_used = True
+                    files = []
+                    fallback_used = True
+
         if wx_hourly.empty:
             raise RuntimeError("Clima horário vazio para esse ponto.")
         fc_no2 = forecast_no2_24h(wx_hourly, no2_seed)
         risk_label, ratio = _compute_risk(no2_seed, fc_no2)
         coll_used = COLL_L3_NRT_NO2 if prefer_used else COLL_L2_NRT_NO2
+
+        ground: GroundSample | None = None
+        try:
+            g = aqicn_fetch(lat, lon)
+            ground = GroundSample(**g)
+            if isinstance(ground.aqi, (int, float)) and ground.aqi >= 151 and risk_label != "high":
+                risk_label = "high"
+        except Exception:
+            ground = None
+
         payload: Dict[str, Any] = {
             "lat": lat,
             "lon": lon,
@@ -199,12 +229,21 @@ def forecast(
                 "granules": [Path(p).name for p in files],
                 "mode": mode,
                 "timeout_s": TEMPO_TIMEOUT_S,
-                "fallback_used": len(files) == 0,
+                "fallback_used": fallback_used,
             },
+            "ground": ground,
         }
-        if mode in ("auto", "cache") and not (start or end or bbox):
+
+        if require_nasa and payload["tempo"]["fallback_used"]:
+            raise HTTPException(status_code=424, detail="NASA TEMPO ausente nesta janela/bbox (fallback em uso).")
+
+        if mode in ("auto", "cache") and not (start or end or bbox or skip_nasa or require_nasa):
             _CACHE[key] = (time.time(), payload)
+
         return payload
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[ERROR] /forecast lat={lat} lon={lon} -> {type(e).__name__}: {e}")
         raise HTTPException(status_code=503, detail="Upstream error (NASA/Weather).")
