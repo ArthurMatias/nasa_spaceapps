@@ -1,26 +1,27 @@
-# app.py
 from __future__ import annotations
-
 from pathlib import Path
+from typing import List, Dict, Any, Optional, Tuple
 import time
-from typing import List, Dict, Any
+import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-# Nossos módulos locais
-from nasa_tempo import fetch_tempo_no2_granule, compute_no2_seed
+from nasa_tempo import (
+    fetch_tempo_no2_by_time_bbox,
+    compute_no2_seed,
+    COLL_L3_NRT_NO2,
+    COLL_L2_NRT_NO2,
+)
 from weather_openweather import fetch_forecast, forecast_to_df, to_hourly
 from forecast import forecast_no2_24h
 
-# =========================
-# Configuração do app
-# =========================
-app = FastAPI(title="TEMPO + Weather Forecast API", version="0.2.0")
+app = FastAPI(title="TEMPO + Weather Forecast API", version="0.4.0")
 
-# CORS para dev (ajuste os domínios do seu front se necessário)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -34,22 +35,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Granule fixo (demo) — troque se quiser
-DEFAULT_GRANULE = ["TEMPO_NO2_L2_V03_20250406T215103Z_S012G07.nc"]
 DATA_DIR = Path("./tempo_data")
-
-# Cache simples em memória: (lat,lon) -> (timestamp, payload_dict)
 _CACHE: Dict[tuple[float, float], tuple[float, Dict[str, Any]]] = {}
-CACHE_TTL_SECONDS = 30 * 60  # 30 min
+CACHE_TTL_SECONDS = 30 * 60
 
+TEMPO_TIMEOUT_S = float(os.getenv("TEMPO_TIMEOUT_S", "8"))
+NO2_SEED_FALLBACK = float(os.getenv("NO2_SEED_FALLBACK", "3.0e15"))
 
-# =========================
-# Modelos de resposta
-# =========================
 class ForecastPoint(BaseModel):
     datetime_utc: str
     no2_forecast: float
-
 
 class WeatherPoint(BaseModel):
     datetime_utc: str
@@ -62,33 +57,25 @@ class WeatherPoint(BaseModel):
     rain_1h_est: float | None = None
     snow_1h_est: float | None = None
 
-
 class ForecastPayload(BaseModel):
     lat: float
     lon: float
-    no2_seed: float = Field(..., description="Média do NO₂ (coluna troposférica) do granule TEMPO usado como estado atual")
-    risk: str = Field(..., description="low | moderate | high — baseado na razão pico/seed")
+    no2_seed: float = Field(...)
+    risk: str
     ratio_peak_over_seed: float
     forecast: List[ForecastPoint]
     weather: List[WeatherPoint]
+    tempo: Dict[str, Any]
 
-
-# =========================
-# Utilitários
-# =========================
 def _round_key(lat: float, lon: float, digits: int = 4) -> tuple[float, float]:
-    # arredonda para reduzir cardinalidade do cache
     return (round(lat, digits), round(lon, digits))
-
 
 def _df_to_records_iso(df: pd.DataFrame) -> List[Dict[str, Any]]:
     out = df.copy()
     out["datetime_utc"] = pd.to_datetime(out["datetime_utc"], utc=True).dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     return out.to_dict(orient="records")
 
-
 def _compute_risk(no2_seed: float, fc_no2: pd.DataFrame) -> tuple[str, float]:
-    """Retorna (risk_label, ratio_peak_over_seed)."""
     if no2_seed is None or no2_seed <= 0 or fc_no2.empty:
         return ("low", 1.0)
     peak = float(fc_no2["no2_forecast"].max())
@@ -99,49 +86,104 @@ def _compute_risk(no2_seed: float, fc_no2: pd.DataFrame) -> tuple[str, float]:
         return ("moderate", ratio)
     return ("low", ratio)
 
+def _fmt_iso(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-# =========================
-# Endpoints
-# =========================
+def _bbox_default(lat: float, lon: float) -> Tuple[float, float, float, float]:
+    dlon, dlat = 1.5, 1.2
+    return (lon - dlon, lat - dlat, lon + dlon, lat + dlat)
+
+def _parse_bbox(bbox_str: str) -> Tuple[float, float, float, float]:
+    parts = [float(x) for x in bbox_str.split(",")]
+    if len(parts) != 4:
+        raise ValueError
+    return (parts[0], parts[1], parts[2], parts[3])
+
+def _fetch_tempo_fast(lat: float, lon: float, start: Optional[str], end: Optional[str], bbox: Optional[str]):
+    now = datetime.now(timezone.utc)
+    s_iso = start or _fmt_iso(now - timedelta(hours=4))
+    e_iso = end or _fmt_iso(now + timedelta(minutes=1))
+    bb = _parse_bbox(bbox) if bbox else _bbox_default(lat, lon)
+    for prefer_l3 in (True, False):
+        files = fetch_tempo_no2_by_time_bbox(DATA_DIR, s_iso, e_iso, bb, prefer_l3=prefer_l3)
+        if files:
+            return files, s_iso, e_iso, bb, prefer_l3
+    raise RuntimeError("No matching granules (fast)")
+
+def _fetch_tempo_robust(lat: float, lon: float, start: Optional[str], end: Optional[str], bbox: Optional[str]):
+    if bbox:
+        bb = _parse_bbox(bbox)
+    else:
+        bb = _bbox_default(lat, lon)
+    attempts: List[Tuple[str, str, Tuple[float, float, float, float]]] = []
+    if start and end:
+        attempts.append((start, end, bb))
+    else:
+        now = datetime.now(timezone.utc)
+        for hrs in (8, 12, 24):
+            s = _fmt_iso(now - timedelta(hours=hrs))
+            e = _fmt_iso(now + timedelta(minutes=1))
+            attempts.append((s, e, bb))
+    for s_iso, e_iso, bb2 in attempts:
+        for prefer_l3 in (True, False):
+            try:
+                files = fetch_tempo_no2_by_time_bbox(DATA_DIR, s_iso, e_iso, bb2, prefer_l3=prefer_l3)
+                if files:
+                    return files, s_iso, e_iso, bb2, prefer_l3
+            except Exception:
+                pass
+    raise RuntimeError("No matching granules (robust)")
+
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "tempo-weather-api", "version": "0.2.0"}
-
+    return {"ok": True, "service": "tempo-weather-api", "version": "0.4.0"}
 
 @app.get("/forecast", response_model=ForecastPayload)
 def forecast(
-    lat: float = Query(..., description="Latitude (América do Norte para cobertura TEMPO)"),
-    lon: float = Query(..., description="Longitude (América do Norte para cobertura TEMPO)"),
+    lat: float = Query(...),
+    lon: float = Query(...),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    bbox: Optional[str] = Query(None),
+    mode: str = Query("auto"),
 ):
     key = _round_key(lat, lon)
-
-    # 1) Cache quente?
     ts, cached = _CACHE.get(key, (0.0, None))
-    if cached and (time.time() - ts) < CACHE_TTL_SECONDS:
-        return cached  # payload já pronto
-
-    # 2) Pipeline com tratamento de erros — qualquer falha externa vira 503
+    if mode == "cache" and cached:
+        return cached
+    if cached and (time.time() - ts) < CACHE_TTL_SECONDS and mode == "auto" and not (start or end or bbox):
+        return cached
     try:
-        # 2.1 Baixa/usa um granule TEMPO e extrai seed de NO₂
-        files = fetch_tempo_no2_granule(DATA_DIR, DEFAULT_GRANULE)
-        if not files:
-            raise RuntimeError("Harmony não retornou arquivos.")
-        no2_seed = compute_no2_seed(files[0])
-
-        # 2.2 Clima (OpenWeather 2.5: forecast 5d/3h) -> horário (1h)
-        fc_js = fetch_forecast(lat, lon, units="metric")
-        df_3h = forecast_to_df(fc_js)
-        wx_hourly = to_hourly(df_3h)
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            wx_future = ex.submit(lambda: to_hourly(forecast_to_df(fetch_forecast(lat, lon, units="metric"))))
+            if mode == "fast":
+                tempo_future = ex.submit(_fetch_tempo_fast, lat, lon, start, end, bbox)
+                try:
+                    files, start_iso, end_iso, bbox_tuple, prefer_used = tempo_future.result(timeout=TEMPO_TIMEOUT_S)
+                    no2_seed = compute_no2_seed(files[0])
+                except FuturesTimeout:
+                    no2_seed = NO2_SEED_FALLBACK
+                    files, start_iso, end_iso, bbox_tuple, prefer_used = ([], start or "", end or "", _bbox_default(lat, lon), True)
+                except Exception:
+                    no2_seed = NO2_SEED_FALLBACK
+                    files, start_iso, end_iso, bbox_tuple, prefer_used = ([], start or "", end or "", _bbox_default(lat, lon), True)
+            else:
+                tempo_future = ex.submit(_fetch_tempo_robust, lat, lon, start, end, bbox)
+                try:
+                    files, start_iso, end_iso, bbox_tuple, prefer_used = tempo_future.result(timeout=TEMPO_TIMEOUT_S)
+                    no2_seed = compute_no2_seed(files[0])
+                except FuturesTimeout:
+                    no2_seed = NO2_SEED_FALLBACK
+                    files, start_iso, end_iso, bbox_tuple, prefer_used = ([], start or "", end or "", _bbox_default(lat, lon), True)
+                except Exception:
+                    no2_seed = NO2_SEED_FALLBACK
+                    files, start_iso, end_iso, bbox_tuple, prefer_used = ([], start or "", end or "", _bbox_default(lat, lon), True)
+            wx_hourly = wx_future.result()
         if wx_hourly.empty:
             raise RuntimeError("Clima horário vazio para esse ponto.")
-
-        # 2.3 Forecast de NO₂ (baseline)
         fc_no2 = forecast_no2_24h(wx_hourly, no2_seed)
-
-        # 2.4 Risco (pico/seed)
         risk_label, ratio = _compute_risk(no2_seed, fc_no2)
-
-        # 2.5 Serialização
+        coll_used = COLL_L3_NRT_NO2 if prefer_used else COLL_L2_NRT_NO2
         payload: Dict[str, Any] = {
             "lat": lat,
             "lon": lon,
@@ -150,16 +192,19 @@ def forecast(
             "ratio_peak_over_seed": ratio,
             "forecast": _df_to_records_iso(fc_no2),
             "weather": _df_to_records_iso(wx_hourly),
+            "tempo": {
+                "collection_id": coll_used,
+                "temporal_used": {"start": start_iso, "end": end_iso},
+                "bbox_used": {"minLon": bbox_tuple[0], "minLat": bbox_tuple[1], "maxLon": bbox_tuple[2], "maxLat": bbox_tuple[3]},
+                "granules": [Path(p).name for p in files],
+                "mode": mode,
+                "timeout_s": TEMPO_TIMEOUT_S,
+                "fallback_used": len(files) == 0,
+            },
         }
-
-        # 2.6 Atualiza cache e retorna
-        _CACHE[key] = (time.time(), payload)
+        if mode in ("auto", "cache") and not (start or end or bbox):
+            _CACHE[key] = (time.time(), payload)
         return payload
-
-    except HTTPException:
-        # repropaga se já for HTTPException
-        raise
     except Exception as e:
-        # log simples (pode trocar por logging)
         print(f"[ERROR] /forecast lat={lat} lon={lon} -> {type(e).__name__}: {e}")
-        raise HTTPException(status_code=503, detail="Upstream error (NASA/Weather). Tente novamente em instantes.")
+        raise HTTPException(status_code=503, detail="Upstream error (NASA/Weather).")
