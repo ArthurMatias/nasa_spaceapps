@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { getForecast, type ForecastPayload } from "./lib/api";
 import ForecastChart from "./components/ForecastChart";
+import Modal from "./components/modal"
 
 export default function App() {
   const [lat, setLat] = useState(39.7392);
@@ -32,9 +33,8 @@ export default function App() {
   }
 
   return (
-    <main style={{ maxWidth: 960, margin: "40px auto", padding: 16, color: "#fff" }}>
+    <main style={{margin: "40px auto", padding: 16, color: "#000000ff" }}>
       <h1>TEMPO Air — NO₂ Forecast</h1>
-
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto", gap: 8, alignItems: "end" }}>
         <label>Lat <input type="number" step="0.0001" value={lat} onChange={e=>setLat(parseFloat(e.target.value))} /></label>
         <label>Lon <input type="number" step="0.0001" value={lon} onChange={e=>setLon(parseFloat(e.target.value))} /></label>
@@ -49,6 +49,8 @@ export default function App() {
             <label>bbox <input placeholder="-106,38,-104,41" value={bbox ?? ""} onChange={e=>setBbox(e.target.value || undefined)} /></label>
           </div>
         </details>
+
+        </Modal>
       </div>
 
       {err && <div style={{ marginTop: 10, padding: 10, background: "#7f1d1d", borderRadius: 8 }}>
