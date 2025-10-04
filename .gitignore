@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+tempo_data/
+*.nc
+*.nc4
+*.h5
+*.hdf5
+.env
+
