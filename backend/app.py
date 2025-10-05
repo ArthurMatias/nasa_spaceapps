@@ -32,7 +32,7 @@ from weather_openweather import fetch_forecast, forecast_to_df, to_hourly
 from forecast import forecast_no2_24h
 from aqicn_client import fetch_nearest as aqicn_fetch
 
-app = FastAPI(title="TEMPO + Weather Forecast API", version="0.5.1")
+app = FastAPI(title="TEMPO + Weather Forecast API", version="0.6.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -194,7 +194,7 @@ def next_critical_hour(hourly_risk: List[Dict[str, Any]]) -> Optional[str]:
     now = pd.Timestamp.now(tz="UTC")
     for r in hourly_risk:
         t = pd.to_datetime(r["datetime_utc"], utc=True)
-        if t.tzinfo is None:
+        if getattr(t, "tz", None) is None:
             t = t.tz_localize("UTC")
         else:
             t = t.tz_convert("UTC")
@@ -315,7 +315,7 @@ def _fetch_tempo_robust(lat: float, lon: float, start: Optional[str], end: Optio
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "tempo-weather-api", "version": "0.5.1"}
+    return {"ok": True, "service": "tempo-weather-api", "version": "0.6.0"}
 
 @app.get("/forecast", response_model=ForecastPayload)
 def forecast(
@@ -410,6 +410,16 @@ def forecast(
                     concordance = "underpredict"
                 else:
                     concordance = "overpredict"
+
+        try:
+            peak_idx = fc_multi["no2_forecast"].astype(float).idxmax()
+            peak_row = fc_multi.loc[peak_idx]
+            peak_time_iso = pd.to_datetime(peak_row["datetime_utc"], utc=True).strftime("%Y-%m-%dT%H:%M:%SZ")
+            peak_val = float(peak_row["no2_forecast"])
+        except Exception:
+            peak_time_iso = None
+            peak_val = None
+
         payload: Dict[str, Any] = {
             "lat": lat,
             "lon": lon,
@@ -421,16 +431,42 @@ def forecast(
             "tempo": {
                 "collection_id": coll_used,
                 "temporal_used": {"start": start_iso, "end": end_iso},
-                "bbox_used": {"minLon": bbox_tuple[0], "minLat": bbox_tuple[1], "maxLon": bbox_tuple[2], "maxLat": bbox_tuple[3]},
+                "bbox_used": {
+                    "minLon": bbox_tuple[0], "minLat": bbox_tuple[1],
+                    "maxLon": bbox_tuple[2], "maxLat": bbox_tuple[3]
+                },
                 "granules": [Path(p).name for p in files],
                 "mode": mode,
                 "timeout_s": TEMPO_TIMEOUT_S,
                 "fallback_used": fallback_used,
+                "seed_units": "molecules/cm^2",
+                "species_units": {
+                    "no2_forecast": "molecules/cm^2",
+                    "o3_forecast": "ppbv (proxy)",
+                    "hcho_forecast": "ppbv (proxy)",
+                    "ai": "index",
+                    "pm25_forecast": "µg/m³ (proxy)"
+                },
+                "nowcast_peak": {
+                    "datetime_utc": peak_time_iso,
+                    "no2_forecast": peak_val
+                },
+                "forecast_window_h": int(len(fc_multi)),
+                "sources": {
+                    "satellite": "NASA TEMPO",
+                    "weather": "OpenWeather",
+                    "ground": "AQICN"
+                }
             },
             "ground": ground,
             "alerts": {"hourly_risk": hourly_risk, "next_critical_hour": nexth},
-            "validation": {"ground_bucket": g_bucket, "model_bucket": model_bucket, "concordance": concordance},
+            "validation": {
+                "ground_bucket": g_bucket,
+                "model_bucket": model_bucket,
+                "concordance": concordance
+            },
         }
+
         if mode in ("auto", "cache") and not (start or end or bbox or skip_nasa or require_nasa):
             _CACHE[key] = (time.time(), payload)
         return payload

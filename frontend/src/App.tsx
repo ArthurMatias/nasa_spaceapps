@@ -37,6 +37,57 @@ function mergeByTime(a: any[], b: any[]) {
   );
 }
 
+type Risk = "low" | "moderate" | "high";
+
+function apiIndexToRisk(v: number): Risk {
+  if (v >= 70) return "high";
+  if (v >= 40) return "moderate";
+  return "low";
+}
+function worstRisk(a: Risk, b: Risk): Risk {
+  const rank: Record<Risk, number> = { low: 0, moderate: 1, high: 2 };
+  return rank[a] >= rank[b] ? a : b;
+}
+
+function computeApiIndex(p: any): number {
+  if (!p) return 0;
+  const no2 = Number(p.no2_forecast ?? 0);
+  const o3 = Number(p.o3_forecast ?? 0);
+  const pm25 = Number(p.pm25_forecast ?? 0);
+  const ai = Number(p.ai ?? 0);
+  const no2s = Math.max(0, Math.min(100, (no2 / 3.0e15) * 100));
+  const o3s = Math.max(0, Math.min(100, (o3 / 120) * 100));
+  const pm25s = Math.max(0, Math.min(100, (pm25 / 150) * 100));
+  const ais = Math.max(0, Math.min(100, (ai / 5) * 100));
+  const v = 0.35 * no2s + 0.25 * o3s + 0.25 * pm25s + 0.15 * ais;
+  return Math.round(v);
+}
+
+function PollutionIndexCard({ value }: { value: number }) {
+  const label = value >= 70 ? "High" : value >= 40 ? "Moderate" : "Good";
+  const track = "#1f2937";
+  const fill = value >= 70 ? "#ef4444" : value >= 40 ? "#f59e0b" : "#10b981";
+  return (
+    <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+      <div style={{ background: "#0b0f19", border: "1px solid #1f2937", borderRadius: 12, padding: "12px 16px", width: 120, textAlign: "center" }}>
+        <div style={{ fontSize: 12, color: "#9ca3af" }}>Air Pollution Index</div>
+        <div style={{ fontSize: 28, fontWeight: 800 }}>{value}</div>
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ height: 10, background: track, borderRadius: 999, overflow: "hidden" }}>
+          <div style={{ width: `${value}%`, height: "100%", background: fill }} />
+        </div>
+        <div style={{ display: "flex", gap: 16, marginTop: 6, color: "#9ca3af", fontSize: 12 }}>
+          <span>Good</span>
+          <span>Moderate</span>
+          <span>High</span>
+          <span style={{ marginLeft: "auto", color: fill }}>{label}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [lat, setLat] = useState(39.7392);
   const [lon, setLon] = useState(-104.9903);
@@ -82,7 +133,20 @@ export default function App() {
     runFetch();
   }, [lat, lon, DEMO]);
 
-  const riskColor = data?.risk === "high" ? "#ef4444" : data?.risk === "moderate" ? "#f59e0b" : "#10b981";
+  const nextPoint = useMemo(() => {
+    const now = Date.now();
+    const arr = data?.forecast ?? [];
+    const sorted = [...arr].sort(
+      (a: any, b: any) => new Date(a.datetime_utc).getTime() - new Date(b.datetime_utc).getTime()
+    );
+    return sorted.find((r: any) => new Date(r.datetime_utc).getTime() >= now) || sorted[0];
+  }, [data]);
+
+  const apiIndexValue = computeApiIndex(nextPoint);
+  const modelRisk = (data?.risk as Risk) || "low";
+  const apiRisk = apiIndexToRisk(apiIndexValue);
+  const displayRisk = worstRisk(modelRisk, apiRisk);
+  const riskColor = displayRisk === "high" ? "#ef4444" : displayRisk === "moderate" ? "#f59e0b" : "#10b981";
 
   return (
     <main style={{ margin: "0 auto", color: "#e5e7eb" }}>
@@ -91,9 +155,9 @@ export default function App() {
         BREATH • <span style={{ color: "#60a5fa" }}>A NASA PROJECT</span>
       </h1>
 
-      <div style={{display: "flex", justifyContent: "center", alignItems:"center"}}>
-        <div style={{ width: '35%'}}> 
-          <StateSearch/>
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+        <div style={{ width: "35%" }}>
+          <StateSearch />
         </div>
       </div>
 
@@ -138,6 +202,12 @@ export default function App() {
             {loading ? "Refreshing..." : "Refresh"}
           </button>
 
+          {data?.tempo?.fallback_used && (
+            <div style={{ marginTop: 12, padding: 12, background: "#111827", border: "1px solid #374151", borderRadius: 8, color: "#e5e7eb" }}>
+              Using fallback. No TEMPO granule found for this window/bbox.
+            </div>
+          )}
+
           {err && (
             <div style={{ marginTop: 12, padding: 10, background: "#7f1d1d", borderRadius: 8, border: "1px solid #991b1b" }}>
               <b>Error:</b> {err}
@@ -146,50 +216,95 @@ export default function App() {
 
           {data && (
             <>
+              <div style={{ marginTop: 16 }}>
+                <PollutionIndexCard value={apiIndexValue} />
+              </div>
+
               <div style={{ marginTop: 12 }}>
                 <b>Risk:</b>{" "}
                 <span style={{ background: riskColor, color: "#fff", padding: "4px 10px", borderRadius: 8 }}>
-                  {data.risk.toUpperCase()}
+                  {displayRisk.toUpperCase()}
                 </span>
               </div>
 
-              <div style={{ marginTop: 8, fontSize: 14 }}>
-                <b>NO₂ seed:</b> {Number(data.no2_seed).toExponential(2)}
-                {data.tempo?.fallback_used && <div style={{ color: "#f59e0b", marginTop: 4 }}></div>}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                <span style={{ background: "#0b0f19", border: "1px solid #1f2937", borderRadius: 8, padding: "6px 10px" }}>
+                  NO₂: {Number(data.no2_seed).toExponential(2)} molecules/cm^2
+                </span>
+                {typeof nextPoint?.o3_forecast === "number" && (
+                  <span style={{ background: "#0b0f19", border: "1px solid #1f2937", borderRadius: 8, padding: "6px 10px" }}>
+                    O₃: {Number(nextPoint.o3_forecast).toFixed(1)} ppbv (proxy)
+                  </span>
+                )}
+                {typeof nextPoint?.hcho_forecast === "number" && (
+                  <span style={{ background: "#0b0f19", border: "1px solid #1f2937", borderRadius: 8, padding: "6px 10px" }}>
+                    HCHO: {Number(nextPoint.hcho_forecast).toFixed(1)} ppbv (proxy)
+                  </span>
+                )}
+                {typeof nextPoint?.ai === "number" && (
+                  <span style={{ background: "#0b0f19", border: "1px solid #1f2937", borderRadius: 8, padding: "6px 10px" }}>
+                    AI: {Number(nextPoint.ai).toFixed(2)} index
+                  </span>
+                )}
+                {typeof nextPoint?.pm25_forecast === "number" && (
+                  <span style={{ background: "#0b0f19", border: "1px solid #1f2937", borderRadius: 8, padding: "6px 10px" }}>
+                    PM2.5: {Number(nextPoint.pm25_forecast).toFixed(1)} µg/m³ (proxy)
+                  </span>
+                )}
               </div>
 
               {data.alerts && (
-                <div style={{ marginTop: 12 }}>
+                <div style={{ marginTop: 16 }}>
                   <h3>Alerts</h3>
-                  <AlertBadge risk={data.risk as any} nextCritical={data.alerts.next_critical_hour as any} />
+                  <AlertBadge risk={displayRisk as any} nextCritical={data.alerts.next_critical_hour as any} />
                   <div style={{ marginTop: 8 }}>
                     <NotifyOptIn nextCritical={data.alerts.next_critical_hour as any} />
                   </div>
                 </div>
               )}
 
-              <div style={{ marginTop: 12 }}>
+              <div style={{ marginTop: 16 }}>
+                <h3>TEMPO Details</h3>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div>
+                    <div>Window: {data.tempo?.temporal_used?.start || "—"} → {data.tempo?.temporal_used?.end || "—"}</div>
+                    <div style={{ marginTop: 8, fontSize: 12, color: "#9ca3af" }}>
+                      Units
+                    </div>
+                    <div>Seed: molecules/cm^2</div>
+                    <div>O₃: ppbv (proxy)</div>
+                    <div>AI: index</div>
+                  </div>
+                  <div>
+                    <div>NO₂: molecules/cm^2</div>
+                    <div>HCHO: ppbv (proxy)</div>
+                    <div>PM2.5: µg/m³ (proxy)</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 16 }}>
                 <h3>Recommendations</h3>
                 <ul style={{ lineHeight: 1.6, marginTop: 6 }}>
-                  {data.risk === "high" && (
+                  {displayRisk === "high" && (
                     <>
                       <li>Avoid strenuous outdoor exercise; prioritize indoor environments.</li>
                       <li>Sensitive groups: consider PFF2/N95 when outdoors.</li>
                       <li>Keep windows closed; prefer filtered ventilation.</li>
                     </>
                   )}
-                  {data.risk === "moderate" && (
+                  {displayRisk === "moderate" && (
                     <>
                       <li>Reduce outdoor exercise if you have respiratory symptoms.</li>
                       <li>Prefer lower-traffic hours and routes.</li>
                     </>
                   )}
-                  {data.risk === "low" && <li>Favorable conditions for outdoor activities.</li>}
+                  {displayRisk === "low" && <li>Favorable conditions for outdoor activities.</li>}
                 </ul>
               </div>
 
               <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button onClick={() => downloadCSV("forecast_no2.csv", data.forecast)}>Download CSV (NO₂)</button>
+                <button onClick={() => downloadCSV("forecast_no2.csv", data.forecast)}>Download CSV (Forecast)</button>
                 <button onClick={() => downloadCSV("weather_hourly.csv", data.weather)}>Download CSV (Hourly weather)</button>
               </div>
 
