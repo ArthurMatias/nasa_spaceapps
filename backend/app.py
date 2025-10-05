@@ -32,7 +32,6 @@ from weather_openweather import fetch_forecast, forecast_to_df, to_hourly
 from forecast import forecast_no2_24h
 from aqicn_client import fetch_nearest as aqicn_fetch
 
-
 app = FastAPI(title="TEMPO + Weather Forecast API", version="0.5.1")
 
 app.add_middleware(
@@ -61,11 +60,13 @@ TEMPO_TIMEOUT_S = float(os.getenv("TEMPO_TIMEOUT_S", "8"))
 OPENWEATHER_TIMEOUT_S = float(os.getenv("OPENWEATHER_TIMEOUT_S", "8"))
 NO2_SEED_FALLBACK = float(os.getenv("NO2_SEED_FALLBACK", "3.0e15"))
 
-
 class ForecastPoint(BaseModel):
     datetime_utc: str
     no2_forecast: float
-
+    o3_forecast: float | None = None
+    hcho_forecast: float | None = None
+    ai: float | None = None
+    pm25_forecast: float | None = None
 
 class WeatherPoint(BaseModel):
     datetime_utc: str
@@ -78,7 +79,6 @@ class WeatherPoint(BaseModel):
     rain_1h_est: float | None = None
     snow_1h_est: float | None = None
 
-
 class GroundSample(BaseModel):
     aqi: int | float | None = None
     no2: float | None = None
@@ -90,7 +90,6 @@ class GroundSample(BaseModel):
     station_geo: List[float] | None = None
     attribution: str | None = None
     fetched_utc: str | None = None
-
 
 class ForecastPayload(BaseModel):
     lat: float
@@ -105,16 +104,13 @@ class ForecastPayload(BaseModel):
     alerts: Dict[str, Any] | None = None
     validation: Dict[str, Any] | None = None
 
-
 def _round_key(lat: float, lon: float, digits: int = 4) -> tuple[float, float]:
     return (round(lat, digits), round(lon, digits))
-
 
 def _df_to_records_iso(df: pd.DataFrame) -> List[Dict[str, Any]]:
     out = df.copy()
     out["datetime_utc"] = pd.to_datetime(out["datetime_utc"], utc=True).dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     return out.to_dict(orient="records")
-
 
 def _compute_risk(no2_seed: float, fc_no2: pd.DataFrame) -> tuple[str, float]:
     if no2_seed is None or no2_seed <= 0 or fc_no2.empty:
@@ -127,22 +123,18 @@ def _compute_risk(no2_seed: float, fc_no2: pd.DataFrame) -> tuple[str, float]:
         return ("moderate", ratio)
     return ("low", ratio)
 
-
 def _fmt_iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
 
 def _bbox_default(lat: float, lon: float) -> Tuple[float, float, float, float]:
     dlon, dlat = 1.5, 1.2
     return (lon - dlon, lat - dlat, lon + dlon, lat + dlat)
-
 
 def _parse_bbox(bbox_str: str) -> Tuple[float, float, float, float]:
     parts = [float(x) for x in bbox_str.split(",")]
     if len(parts) != 4:
         raise ValueError
     return (parts[0], parts[1], parts[2], parts[3])
-
 
 def _join_forecast_weather(fc_no2: pd.DataFrame, wx_hourly: pd.DataFrame) -> pd.DataFrame:
     a = fc_no2.copy()
@@ -155,7 +147,6 @@ def _join_forecast_weather(fc_no2: pd.DataFrame, wx_hourly: pd.DataFrame) -> pd.
         how="left",
     )
     return m
-
 
 def _meteo_factor(row: pd.Series) -> float:
     f = 1.0
@@ -178,13 +169,11 @@ def _meteo_factor(row: pd.Series) -> float:
         f *= 0.85
     return float(max(0.6, min(1.4, f)))
 
-
 def adjust_no2_with_meteo(fc_no2: pd.DataFrame, wx_hourly: pd.DataFrame) -> pd.DataFrame:
     m = _join_forecast_weather(fc_no2, wx_hourly)
     m["adj_factor"] = m.apply(_meteo_factor, axis=1)
     m["no2_forecast"] = (m["no2_forecast"] * m["adj_factor"]).astype(float)
     return m[["datetime_utc", "no2_forecast"]]
-
 
 def build_hourly_risk(no2_seed: float, fc_no2: pd.DataFrame) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
@@ -201,7 +190,6 @@ def build_hourly_risk(no2_seed: float, fc_no2: pd.DataFrame) -> List[Dict[str, A
         rows.append({"datetime_utc": pd.to_datetime(r["datetime_utc"], utc=True).strftime("%Y-%m-%dT%H:%M:%SZ"), "risk": rk})
     return rows
 
-
 def next_critical_hour(hourly_risk: List[Dict[str, Any]]) -> Optional[str]:
     now = pd.Timestamp.now(tz="UTC")
     for r in hourly_risk:
@@ -213,7 +201,6 @@ def next_critical_hour(hourly_risk: List[Dict[str, Any]]) -> Optional[str]:
         if t >= now and r["risk"] == "high":
             return t.strftime("%Y-%m-%dT%H:%M:%SZ")
     return None
-
 
 def _open_no2_dataset(nc_path: str) -> tuple[xr.Dataset, str]:
     ds = None
@@ -234,7 +221,6 @@ def _open_no2_dataset(nc_path: str) -> tuple[xr.Dataset, str]:
             return ds, cand
     raise RuntimeError("NO2 variable not found")
 
-
 def _open_geo(nc_path: str) -> tuple[np.ndarray, np.ndarray]:
     geo = None
     try:
@@ -248,7 +234,6 @@ def _open_geo(nc_path: str) -> tuple[np.ndarray, np.ndarray]:
         raise RuntimeError("geolocation not found")
     return geo["longitude"].values, geo["latitude"].values
 
-
 def _render_no2_overlay_png(nc_path: str, bbox: Tuple[float, float, float, float]) -> bytes:
     ds, vname = _open_no2_dataset(nc_path)
     lon, lat = _open_geo(nc_path)
@@ -260,7 +245,7 @@ def _render_no2_overlay_png(nc_path: str, bbox: Tuple[float, float, float, float
     ax.set_xticks([])
     ax.set_yticks([])
     ax.set_facecolor((0, 0, 0, 0))
-    mesh = ax.pcolormesh(lon, lat, z, shading="auto", cmap="plasma")
+    ax.pcolormesh(lon, lat, z, shading="auto", cmap="plasma")
     for spine in ax.spines.values():
         spine.set_visible(False)
     buf = BytesIO()
@@ -268,6 +253,30 @@ def _render_no2_overlay_png(nc_path: str, bbox: Tuple[float, float, float, float
     plt.close(fig)
     return buf.getvalue()
 
+def _safe_fill(s, val):
+    return s.fillna(val) if hasattr(s, "fillna") else s
+
+def build_multi_species_forecast(fc_no2: pd.DataFrame, wx_hourly: pd.DataFrame) -> pd.DataFrame:
+    m = _join_forecast_weather(fc_no2, wx_hourly).copy()
+    for col, default in [
+        ("temp", 20.0),
+        ("humidity", 50.0),
+        ("wind_speed", 3.0),
+        ("clouds", 40.0),
+        ("rain_1h_est", 0.0),
+    ]:
+        if col not in m:
+            m[col] = default
+        m[col] = _safe_fill(pd.to_numeric(m[col], errors="coerce"), default)
+    no2 = pd.to_numeric(m["no2_forecast"], errors="coerce").fillna(0.0)
+    tnorm = ((m["temp"] + 5.0) / 30.0).clip(0.3, 1.6)
+    clr = ((100.0 - m["clouds"]) / 60.0).clip(0.5, 1.5)
+    calm = (6.0 - m["wind_speed"]).clip(0.0, 6.0)
+    m["o3_forecast"] = (0.06 * no2 * tnorm * clr).astype(float)
+    m["hcho_forecast"] = (0.03 * no2 * clr).astype(float)
+    m["ai"] = (0.4 + 0.07 * calm + 0.005 * m["clouds"]).clip(0.0, 5.0).astype(float)
+    m["pm25_forecast"] = (6.0 + 0.9 * m["ai"] + 0.15 * calm).clip(0.0, 200.0).astype(float)
+    return m[["datetime_utc", "no2_forecast", "o3_forecast", "hcho_forecast", "ai", "pm25_forecast"]]
 
 def _fetch_tempo_fast(lat: float, lon: float, start: Optional[str], end: Optional[str], bbox: Optional[str]):
     now = datetime.now(timezone.utc)
@@ -279,7 +288,6 @@ def _fetch_tempo_fast(lat: float, lon: float, start: Optional[str], end: Optiona
         if files:
             return files, s_iso, e_iso, bb, prefer_l3
     raise RuntimeError("No matching granules (fast)")
-
 
 def _fetch_tempo_robust(lat: float, lon: float, start: Optional[str], end: Optional[str], bbox: Optional[str]):
     if bbox:
@@ -305,11 +313,9 @@ def _fetch_tempo_robust(lat: float, lon: float, start: Optional[str], end: Optio
                 pass
     raise RuntimeError("No matching granules (robust)")
 
-
 @app.get("/health")
 def health():
     return {"ok": True, "service": "tempo-weather-api", "version": "0.5.1"}
-
 
 @app.get("/forecast", response_model=ForecastPayload)
 def forecast(
@@ -335,12 +341,10 @@ def forecast(
                 tempo_future = None
             else:
                 tempo_future = ex.submit(_fetch_tempo_fast if mode == "fast" else _fetch_tempo_robust, lat, lon, start, end, bbox)
-
             try:
                 wx_hourly = wx_future.result(timeout=OPENWEATHER_TIMEOUT_S)
             except (FuturesTimeout, Exception):
                 raise HTTPException(status_code=503, detail="OpenWeather timeout/erro")
-
             if skip_nasa:
                 files, start_iso, end_iso, bbox_tuple, prefer_used = [], start or "", end or "", _bbox_default(lat, lon), True
                 no2_seed = NO2_SEED_FALLBACK
@@ -358,20 +362,17 @@ def forecast(
                     prefer_used = True
                     files = []
                     fallback_used = True
-
         if require_nasa and fallback_used:
             raise HTTPException(status_code=424, detail="NASA TEMPO ausente nesta janela/bbox (fallback em uso).")
-
         if wx_hourly.empty:
             raise RuntimeError("empty weather")
-
         fc_no2 = forecast_no2_24h(wx_hourly, no2_seed)
         fc_no2 = adjust_no2_with_meteo(fc_no2, wx_hourly)
+        fc_multi = build_multi_species_forecast(fc_no2, wx_hourly)
         risk_label, ratio = _compute_risk(no2_seed, fc_no2)
         hourly_risk = build_hourly_risk(no2_seed, fc_no2)
         nexth = next_critical_hour(hourly_risk)
         coll_used = COLL_L3_NRT_NO2 if prefer_used else COLL_L2_NRT_NO2
-
         ground: GroundSample | None = None
         try:
             g = aqicn_fetch(lat, lon)
@@ -385,7 +386,6 @@ def forecast(
                     pass
         except Exception:
             ground = None
-
         def _aqi_bucket(aqi_val) -> str:
             try:
                 v = float(aqi_val) if aqi_val is not None and str(aqi_val).strip() != "" else None
@@ -398,7 +398,6 @@ def forecast(
             if v >= 101:
                 return "moderate"
             return "low"
-
         g_bucket = _aqi_bucket(ground.aqi) if ground else "unknown"
         model_bucket = risk_label
         concordance = "unknown"
@@ -411,14 +410,13 @@ def forecast(
                     concordance = "underpredict"
                 else:
                     concordance = "overpredict"
-
         payload: Dict[str, Any] = {
             "lat": lat,
             "lon": lon,
             "no2_seed": float(no2_seed),
             "risk": risk_label,
             "ratio_peak_over_seed": ratio,
-            "forecast": _df_to_records_iso(fc_no2),
+            "forecast": _df_to_records_iso(fc_multi),
             "weather": _df_to_records_iso(wx_hourly),
             "tempo": {
                 "collection_id": coll_used,
@@ -433,18 +431,14 @@ def forecast(
             "alerts": {"hourly_risk": hourly_risk, "next_critical_hour": nexth},
             "validation": {"ground_bucket": g_bucket, "model_bucket": model_bucket, "concordance": concordance},
         }
-
         if mode in ("auto", "cache") and not (start or end or bbox or skip_nasa or require_nasa):
             _CACHE[key] = (time.time(), payload)
-
         return payload
-
     except HTTPException:
         raise
     except Exception as e:
         print(f"[ERROR] /forecast lat={lat} lon={lon} -> {type(e).__name__}: {e}")
         raise HTTPException(status_code=503, detail="Upstream error (NASA/Weather).")
-
 
 @app.get("/tempo/latest_overlay.png")
 def tempo_overlay(bbox: str = Query("-125,24,-66,50"), prefer_l3: bool = True, hours: int = 8):
@@ -457,16 +451,13 @@ def tempo_overlay(bbox: str = Query("-125,24,-66,50"), prefer_l3: bool = True, h
         raise
     except Exception:
         raise HTTPException(status_code=400, detail="invalid bbox")
-
     cache_key = f"{bbox}|{prefer_l3}|{hours}"
     ts, entry = OVERLAY_CACHE.get(cache_key, (0.0, None))
     if entry and (time.time() - ts) < OVERLAY_CACHE_TTL:
         return Response(content=entry, media_type="image/png")
-
     now = datetime.now(timezone.utc)
     s_iso = _fmt_iso(now - timedelta(hours=hours))
     e_iso = _fmt_iso(now + timedelta(minutes=1))
-
     for p in (prefer_l3, not prefer_l3):
         try:
             files = fetch_tempo_no2_by_time_bbox(DATA_DIR, s_iso, e_iso, bb, prefer_l3=p)
@@ -479,15 +470,9 @@ def tempo_overlay(bbox: str = Query("-125,24,-66,50"), prefer_l3: bool = True, h
                 continue
             OVERLAY_CACHE[cache_key] = (time.time(), png)
             return Response(content=png, media_type="image/png")
-
     raise HTTPException(status_code=404, detail="no TEMPO granule for window/bbox")
 
-# =========================
-# Resumo por estado (escala e desempenho)
-# =========================
-
 US_STATES_CENTROIDS = [
-    # name, lat, lon (aprox. centróides; suficientes para consulta do ponto)
     ("Alabama", 32.806671, -86.791130),
     ("Alaska", 64.200840, -149.493670),
     ("Arizona", 34.048928, -111.093731),
@@ -542,7 +527,6 @@ US_STATES_CENTROIDS = [
 
 def _safe_forecast_point(lat: float, lon: float, skip_nasa: bool) -> dict[str, Any]:
     try:
-        # usa as mesmas regras do /forecast: rápido, bbox local, cache habilitado
         bbox = f"{lon-1.5},{lat-1.2},{lon+1.5},{lat+1.2}"
         payload = forecast(
             lat=lat, lon=lon,
@@ -553,8 +537,7 @@ def _safe_forecast_point(lat: float, lon: float, skip_nasa: bool) -> dict[str, A
         )
         if isinstance(payload, dict):
             return payload
-        # quando FastAPI retorna pydantic model na mesma chamada interna
-        return payload.dict()  # type: ignore
+        return payload.dict()
     except Exception:
         return {
             "risk": "unknown",
@@ -586,4 +569,3 @@ def states_summary(skip_nasa: bool = Query(True)):
                 "updated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             })
     return {"items": results}
-

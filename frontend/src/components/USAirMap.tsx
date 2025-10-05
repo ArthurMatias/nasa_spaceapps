@@ -4,9 +4,9 @@ import * as topojson from "topojson-client";
 import type { Topology, Objects } from "topojson-specification";
 import { getBase } from "../lib/api";
 
-type Props = { onSelect: (s: { name: string; lat: number; lon: number }) => void; useNASA?: boolean; };
+type Props = { onSelect: (s: { name: string; lat: number; lon: number }) => void; useNASA?: boolean };
 type Risk = "low" | "moderate" | "high" | "unknown";
-type USAtlas = Topology<{ states: Objects<{ type: "GeometryCollection"; geometries: any[] }>; nation?: any; counties?: any; }>;
+type USAtlas = Topology<{ states: Objects<{ type: "GeometryCollection"; geometries: any[] }>; nation?: any; counties?: any }>;
 
 const US_TOPO_URL = "https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json";
 const riskFill = (r: Risk) => (r === "high" ? "#ef4444" : r === "moderate" ? "#f59e0b" : r === "low" ? "#10b981" : "#334155");
@@ -29,9 +29,13 @@ export default function USAirMap({ onSelect, useNASA = false }: Props) {
         const r = await fetch(US_TOPO_URL);
         const js = (await r.json()) as USAtlas;
         if (!canceled) setTopo(js);
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error(e);
+      }
     })();
-    return () => { canceled = true; };
+    return () => {
+      canceled = true;
+    };
   }, []);
 
   async function loadSummary(useNasaFlag: boolean) {
@@ -42,11 +46,16 @@ export default function USAirMap({ onSelect, useNASA = false }: Props) {
       const map: Record<string, Risk> = {};
       for (const it of js.items as any[]) map[it.state] = (it.risk || "unknown") as Risk;
       setRiskMap(map);
-    } catch (e) { console.error(e); }
-    finally { setLoadingMap(false); }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingMap(false);
+    }
   }
 
-  useEffect(() => { loadSummary(useNASA); }, [useNASA]);
+  useEffect(() => {
+    loadSummary(useNASA);
+  }, [useNASA]);
 
   const features = useMemo(() => {
     if (!topo) return [];
@@ -70,13 +79,15 @@ export default function USAirMap({ onSelect, useNASA = false }: Props) {
     setHover({ name, x: e.clientX - rect.left + 10, y: e.clientY - rect.top + 10, risk });
   }
 
-  function handleMouseLeave() { setHover(null); }
+  function handleMouseLeave() {
+    setHover(null);
+  }
 
   return (
     <div style={{ position: "relative" }}>
       <div style={{ padding: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontSize: 14, color: "#9ca3af" }}>{loadingMap ? "Atualizando mapa..." : "Clique em um estado para ver detalhes"}</div>
-        <div style={{ fontSize: 12, color: "#9ca3af" }}>Fonte de risco: /states/summary</div>
+        <div style={{ fontSize: 14, color: "#9ca3af" }}>{loadingMap ? "Updating map..." : "Click a state to view details"}</div>
+        <div style={{ fontSize: 12, color: "#9ca3af" }}>Risk source: /states/summary</div>
       </div>
       <svg ref={svgRef} width={width} height={height} style={{ display: "block", height: "auto" }}>
         <rect x={0} y={0} width={width} height={height} fill="#0b0f19" />
@@ -116,7 +127,7 @@ export default function USAirMap({ onSelect, useNASA = false }: Props) {
         >
           <div style={{ fontWeight: 700 }}>{hover.name}</div>
           <div>
-            Risco:{" "}
+            Risk:{" "}
             <span style={{ background: riskFill(hover.risk), color: "#fff", padding: "2px 6px", borderRadius: 6 }}>
               {hover.risk.toUpperCase()}
             </span>
