@@ -81,14 +81,11 @@ export default function App() {
   return (
     <main style={{ margin: "0 auto", color: "#e5e7eb" }}>
       <Header />
-      <h1 className="header_txt" style={{ fontSize: 55, margin: "16px 0" }}>
+      <h1 style={{ fontSize: 40, margin: "10px 0" }}>
         BREATH • <span style={{ color: "#60a5fa" }}>A NASA PROJECT</span>
       </h1>
-      <p className="header_txt" style={{ marginTop: -6 }}>
-        Click a state to inspect the local NO₂ forecast. Toggle “Use NASA (TEMPO)” to try satellite seeding.
-      </p>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "30px 0  0 0px", padding: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "0px 0  0 0px", padding: 16 }}>
         <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <input type="checkbox" checked={useNASA} onChange={(e) => setUseNASA(e.target.checked)} />
           <span>Use NASA (TEMPO)</span>
