@@ -17,7 +17,7 @@ const Header: React.FC<HeaderProps> = ({ title = "Orbitantes" }) => {
 const styles: { [key: string]: React.CSSProperties } = {
   header: {
     backgroundColor: "#2a3647",
-    color: "#ffffff",
+    color: " #ffffff",
     padding: "1rem 2rem",
     textAlign: "center",
   },

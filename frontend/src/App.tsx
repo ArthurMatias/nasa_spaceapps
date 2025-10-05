@@ -81,7 +81,7 @@ export default function App() {
         <RiskLegend size="md" />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16}}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, padding: 16}}>
         <div style={{ background: "#0b0f19", borderRadius: 10, border: "1px solid #1f2937" }}>
           <USAirMap
             useNASA={useNASA}
