@@ -7,6 +7,7 @@ import RiskLegend from "./components/RiskLegend";
 import NotifyOptIn from "./components/NotifyOptIn";
 import Header from "./components/header";
 import "./App.css";
+import StateSearch from "./components/State_Search";
 
 function downloadCSV(filename: string, rows: any[]) {
   if (!rows?.length) return;
@@ -89,6 +90,12 @@ export default function App() {
       <h1 style={{ fontSize: 40, margin: "10px 0" }}>
         BREATH • <span style={{ color: "#60a5fa" }}>A NASA PROJECT</span>
       </h1>
+
+      <div style={{display: "flex", justifyContent: "center", alignItems:"center"}}>
+        <div style={{ width: '35%'}}> 
+          <StateSearch/>
+        </div>
+      </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "0px 0 0 0", padding: 16 }}>
         <div style={{ background: "#0b0f19", border: "1px solid #1f2937", borderRadius: 8, padding: "6px 10px" }}>
