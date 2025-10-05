@@ -1,34 +1,54 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getForecast, type ForecastPayload } from "./lib/api";
 import ForecastChart from "./components/ForecastChart";
+import USAirMap from "./components/USAirMap";
+import AlertBadge from "./components/AlertBadge";
+
+function downloadCSV(filename: string, rows: any[]) {
+  if (!rows?.length) return;
+  const headers = Object.keys(rows[0]);
+  const csv =
+    headers.join(",") +
+    "\n" +
+    rows
+      .map((r) => headers.map((h) => JSON.stringify((r as any)[h] ?? "")).join(","))
+      .join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function App() {
   const [lat, setLat] = useState(39.7392);
   const [lon, setLon] = useState(-104.9903);
-  const [start, setStart] = useState<string>();
-  const [end, setEnd] = useState<string>();
-  const [bbox, setBbox] = useState<string>(); 
-  const [useNasa, setUseNasa] = useState(false);
-  const [requireNasa, setRequireNasa] = useState(false);
-
+  const [stateName, setStateName] = useState<string>("Colorado");
+  const [useNASA, setUseNASA] = useState<boolean>(false);
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<ForecastPayload | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  async function run() {
+  const bboxForPoint = useMemo(() => {
+    const dlon = 1.5, dlat = 1.2;
+    return `${lon - dlon},${lat - dlat},${lon + dlon},${lat + dlat}`;
+  }, [lat, lon]);
+
+  async function runFetch() {
     setLoading(true);
     setErr(null);
-    setData(null);
     try {
       const res = await getForecast(lat, lon, {
-        start, end, bbox,
         mode: "fast",
-        timeoutMs: 30000,
-        skipNasa: !useNasa,
-        requireNasa: useNasa && requireNasa,
+        bbox: bboxForPoint,
+        timeoutMs: 15000,
+        skip_nasa: useNASA ? false : true,
       });
       setData(res);
     } catch (e: any) {
+      setData(null);
       setErr(e?.message ?? "Erro inesperado");
       console.error(e);
     } finally {
@@ -36,105 +56,213 @@ export default function App() {
     }
   }
 
+  useEffect(() => {
+    runFetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lat, lon, useNASA]);
+
   const riskColor =
     data?.risk === "high" ? "#ef4444" : data?.risk === "moderate" ? "#f59e0b" : "#10b981";
 
   return (
-    <main style={{ maxWidth: 1000, margin: "40px auto", padding: 16, color: "#111827", fontFamily: "system-ui, sans-serif" }}>
-      <h1 style={{ marginBottom: 8 }}>TEMPO Air — NO₂ Forecast</h1>
-      <p style={{ marginTop: 0, opacity: 0.8, fontSize: 14 }}>
-        Previsão local de NO₂ combinando <b>NASA TEMPO</b> (seed), <b>OpenWeather</b> (dinâmica) e validação em solo (AQICN).
+    <main style={{ maxWidth: 1200, margin: "0 auto", padding: 16, color: "#e5e7eb" }}>
+      <h1 style={{ fontSize: 44, margin: "12px 0" }}>
+        Air Quality • <span style={{ color: "#60a5fa" }}>TEMPO</span> + Weather
+      </h1>
+      <p style={{ marginTop: -6 }}>
+        Clique em um estado para consultar a previsão local de NO₂. Ative “Usar NASA (TEMPO)”
+        para semear a previsão com o dado orbital.
       </p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, alignItems: "end", marginTop: 12 }}>
-        <label>Lat
-          <input type="number" step="0.0001" value={lat} onChange={e => setLat(parseFloat(e.target.value))}
-            style={{ width: "100%", height: 36 }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "10px 0 16px" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input
+            type="checkbox"
+            checked={useNASA}
+            onChange={(e) => setUseNASA(e.target.checked)}
+          />
+          <span>Usar NASA (TEMPO)</span>
         </label>
-        <label>Lon
-          <input type="number" step="0.0001" value={lon} onChange={e => setLon(parseFloat(e.target.value))}
-            style={{ width: "100%", height: 36 }} />
-        </label>
-        <button onClick={run} disabled={loading} style={{ height: 36 }}>
-          {loading ? "Carregando..." : "Buscar"}
-        </button>
+
+        <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 14 }}>
+          <span>
+            <span style={{ background: "#10b981", display: "inline-block", width: 10, height: 10, marginRight: 6 }} />
+            Baixo
+          </span>
+          <span>
+            <span style={{ background: "#f59e0b", display: "inline-block", width: 10, height: 10, marginRight: 6 }} />
+            Moderado
+          </span>
+          <span>
+            <span style={{ background: "#ef4444", display: "inline-block", width: 10, height: 10, marginRight: 6 }} />
+            Alto
+          </span>
+        </div>
       </div>
 
-      <div style={{ display: "flex", gap: 16, alignItems: "center", marginTop: 8 }}>
-        <label>
-          <input type="checkbox" checked={useNasa} onChange={e => setUseNasa(e.target.checked)} /> Usar NASA (TEMPO)
-        </label>
-        <label style={{ opacity: useNasa ? 1 : 0.4 }}>
-          <input type="checkbox" disabled={!useNasa} checked={requireNasa} onChange={e => setRequireNasa(e.target.checked)} /> Exigir NASA (sem fallback)
-        </label>
-      </div>
-
-      <details style={{ marginTop: 10 }}>
-        <summary>Avançado</summary>
-        <div style={{ display: "grid", gap: 8, marginTop: 8, gridTemplateColumns: "repeat(3, 1fr)" }}>
-          <label>start (UTC)
-            <input placeholder="2025-10-04T16:00:00Z" value={start ?? ""} onChange={e => setStart(e.target.value || undefined)}
-              style={{ width: "100%", height: 32 }} />
-          </label>
-          <label>end (UTC)
-            <input placeholder="2025-10-04T22:00:00Z" value={end ?? ""} onChange={e => setEnd(e.target.value || undefined)}
-              style={{ width: "100%", height: 32 }} />
-          </label>
-          <label>bbox
-            <input placeholder="-106,38,-104,41" value={bbox ?? ""} onChange={e => setBbox(e.target.value || undefined)}
-              style={{ width: "100%", height: 32 }} />
-          </label>
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16 }}>
+        <div style={{ background: "#0b0f19", borderRadius: 10, border: "1px solid #1f2937" }}>
+          <USAirMap
+            onSelect={(s) => {
+              setLat(s.lat);
+              setLon(s.lon);
+              setStateName(s.name);
+            }}
+          />
         </div>
-        <p style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
-          Dica: para garantir TEMPO, use janela e bbox próximos (ex.: Denver {`<-106,38,-104,41`}, 16–22Z).
-        </p>
-      </details>
 
-      {err && (
-        <div style={{ marginTop: 12, padding: 12, background: "#fee2e2", color: "#7f1d1d", borderRadius: 8 }}>
-          <b>Erro:</b> {err}
-        </div>
-      )}
-
-      {data && (
-        <>
-          <div style={{ marginTop: 16 }}>
-            <b>Risco:</b>{" "}
-            <span style={{ background: riskColor, color: "#fff", padding: "4px 10px", borderRadius: 8 }}>
-              {data.risk.toUpperCase()}
-            </span>
-            <span style={{ marginLeft: 12 }}><b>NO₂ seed:</b> {data.no2_seed.toExponential(2)}</span>
-            {data.tempo?.fallback_used && (
-              <span style={{ marginLeft: 12, color: "#b45309" }}>fallback usado</span>
-            )}
+        <div
+          style={{
+            background: "#0b0f19",
+            borderRadius: 10,
+            border: "1px solid #1f2937",
+            padding: 16,
+          }}
+        >
+          <h2 style={{ marginTop: 0 }}>Detalhes</h2>
+          <div style={{ opacity: 0.9, marginBottom: 8 }}>{stateName}</div>
+          <div style={{ fontSize: 13, color: "#9ca3af", marginBottom: 8 }}>
+            lon/lat: {lon.toFixed(4)}, {lat.toFixed(4)}
           </div>
 
-          <h3 style={{ marginTop: 16 }}>Próximas horas</h3>
-          {data.forecast?.length ? (
-            <ForecastChart data={data.forecast} />
-          ) : (
-            <div style={{ padding: 10, background: "#f3f4f6", borderRadius: 8 }}>
-              Sem pontos de previsão para exibir.
+          <button
+            onClick={runFetch}
+            disabled={loading}
+            style={{
+              background: "#111827",
+              border: "1px solid #374151",
+              padding: "8px 14px",
+              borderRadius: 8,
+              color: "#e5e7eb",
+              cursor: "pointer",
+            }}
+          >
+            {loading ? "Atualizando..." : "Atualizar"}
+          </button>
+
+          {err && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: 10,
+                background: "#7f1d1d",
+                borderRadius: 8,
+                border: "1px solid #991b1b",
+              }}
+            >
+              <b>Erro:</b> {err}
             </div>
           )}
 
-          {data.ground && (
-            <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: "#ecfdf5", color: "#064e3b" }}>
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>Validação (Solo)</div>
-              <div><b>Estação:</b> {data.ground.station ?? "—"} | <b>AQI:</b> {data.ground.aqi ?? "—"}</div>
-              <div><b>NO₂:</b> {data.ground.no2 ?? "—"} | <b>PM2.5:</b> {data.ground.pm25 ?? "—"}</div>
-              <div style={{ fontSize: 12, opacity: 0.8 }}>{data.ground.attribution}</div>
-            </div>
-          )}
+          {data && (
+            <>
+              <div style={{ marginTop: 12 }}>
+                <b>Risco:</b>{" "}
+                <span
+                  style={{
+                    background: riskColor,
+                    color: "#fff",
+                    padding: "4px 10px",
+                    borderRadius: 8,
+                  }}
+                >
+                  {data.risk.toUpperCase()}
+                </span>
+              </div>
 
-          <details style={{ marginTop: 12 }}>
-            <summary>Proveniência (TEMPO)</summary>
-            <pre style={{ background: "#111827", color: "#e5e7eb", padding: 8, borderRadius: 8, overflow: "auto" }}>
+              <div style={{ marginTop: 8, fontSize: 14 }}>
+                <b>NO₂ seed:</b>{" "}
+                {Number(data.no2_seed).toExponential(2)}
+                {data.tempo?.fallback_used && (
+                  <div style={{ color: "#f59e0b", marginTop: 4 }}>fallback usado</div>
+                )}
+              </div>
+
+              {data.alerts && (
+                <div style={{ marginTop: 12 }}>
+                  <h3>Alertas</h3>
+                  <AlertBadge
+                    risk={data.risk as any}
+                    nextCritical={data.alerts.next_critical_hour as any}
+                  />
+                </div>
+              )}
+
+              <div style={{ marginTop: 12 }}>
+                <h3>Recomendações</h3>
+                <ul style={{ lineHeight: 1.6, marginTop: 6 }}>
+                  {data.risk === "high" && (
+                    <>
+                      <li>Evite atividades físicas intensas ao ar livre; priorize ambientes internos.</li>
+                      <li>Grupos sensíveis: usar PFF2/N95 ao sair.</li>
+                      <li>Mantenha janelas fechadas; prefira ventilação filtrada.</li>
+                    </>
+                  )}
+                  {data.risk === "moderate" && (
+                    <>
+                      <li>Reduza exercícios ao ar livre se tiver sintomas respiratórios.</li>
+                      <li>Prefira horários/rotas com menos tráfego.</li>
+                    </>
+                  )}
+                  {data.risk === "low" && <li>Condição favorável para atividades ao ar livre.</li>}
+                </ul>
+              </div>
+
+              <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={() => downloadCSV("forecast_no2.csv", data.forecast)}>
+                  Baixar CSV (NO₂)
+                </button>
+                <button onClick={() => downloadCSV("weather_hourly.csv", data.weather)}>
+                  Baixar CSV (Clima horário)
+                </button>
+              </div>
+
+              <h3 style={{ marginTop: 16 }}>Próximas horas</h3>
+              <ForecastChart data={data.forecast} />
+
+              <details style={{ marginTop: 12 }}>
+                <summary>Validação (solo vs previsão)</summary>
+                <div style={{ marginTop: 8, fontSize: 14 }}>
+                  <div>
+                    <b>AQI solo:</b>{" "}
+                    {data.ground?.aqi ?? "—"}{" "}
+                    {data.ground?.time_local ? `(${data.ground.time_local})` : ""}
+                  </div>
+                  {data.ground?.station && (
+                    <div>
+                      <b>Estação:</b> {data.ground.station}
+                    </div>
+                  )}
+                  <div>
+                    <b>Risco (solo):</b> {(data.validation?.ground_bucket ?? "unknown").toUpperCase()}
+                  </div>
+                  <div>
+                    <b>Risco (modelo):</b> {(data.validation?.model_bucket ?? "unknown").toUpperCase()}
+                  </div>
+                  <div>
+                    <b>Concordância:</b> {(data.validation?.concordance ?? "unknown").toUpperCase()}
+                  </div>
+                </div>
+              </details>
+
+              <details style={{ marginTop: 12 }}>
+                <summary>Proveniência (TEMPO)</summary>
+                <pre
+                  style={{
+                    whiteSpace: "pre-wrap",
+                    background: "#111827",
+                    padding: 8,
+                    borderRadius: 8,
+                    border: "1px solid #1f2937",
+                  }}
+                >
 {JSON.stringify(data.tempo, null, 2)}
-            </pre>
-          </details>
-        </>
-      )}
+                </pre>
+              </details>
+            </>
+          )}
+        </div>
+      </div>
     </main>
   );
 }

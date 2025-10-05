@@ -44,10 +44,34 @@ def forecast_to_df(js: dict) -> pd.DataFrame:
 def to_hourly(df3h: pd.DataFrame) -> pd.DataFrame:
     if df3h.empty:
         return df3h
+
     df = df3h.copy()
+    # garantir dtype datetime com timezone
     df["datetime_utc"] = pd.to_datetime(df["datetime_utc"], utc=True)
     df = df.set_index("datetime_utc").asfreq("1h")
-    df = df.interpolate("time").ffill()
-    df["rain_1h_est"] = (df["rain_3h"].fillna(0) / 3.0).astype(float)
-    df["snow_1h_est"] = (df["snow_3h"].fillna(0) / 3.0).astype(float)
+
+    # converte colunas relevantes para numéricas, preserva NaN (evita object dtype)
+    numeric_cols = [
+        "temp", "humidity", "pressure", "wind_speed", "wind_deg",
+        "clouds", "rain_3h", "snow_3h",
+    ]
+    for c in numeric_cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # agora pode interpolar sem warnings (dtype já é numérico)
+    df = df.interpolate(method="time").ffill()
+
+    # estimativas 1h a partir dos acumulados 3h (sem downcast silencioso)
+    if "rain_3h" in df.columns:
+        df["rain_1h_est"] = (df["rain_3h"].fillna(0.0) / 3.0).astype(float)
+    else:
+        df["rain_1h_est"] = 0.0
+
+    if "snow_3h" in df.columns:
+        df["snow_1h_est"] = (df["snow_3h"].fillna(0.0) / 3.0).astype(float)
+    else:
+        df["snow_1h_est"] = 0.0
+
     return df.reset_index()
+

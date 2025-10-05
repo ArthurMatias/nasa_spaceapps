@@ -1,71 +1,97 @@
-export interface ForecastPoint { datetime_utc: string; no2_forecast: number }
-export interface WeatherPoint {
-  datetime_utc: string; temp?: number; humidity?: number; wind_speed?: number;
-  wind_deg?: number; clouds?: number; pressure?: number; rain_1h_est?: number; snow_1h_est?: number;
+const BASE: string =
+  ((import.meta as any)?.env?.VITE_API_BASE as string) || "http://127.0.0.1:8000";
+
+export interface ForecastPoint {
+  datetime_utc: string;
+  no2_forecast: number;
 }
+
+export interface WeatherPoint {
+  datetime_utc: string;
+  temp?: number | null;
+  humidity?: number | null;
+  wind_speed?: number | null;
+  wind_deg?: number | null;
+  clouds?: number | null;
+  pressure?: number | null;
+  rain_1h_est?: number | null;
+  snow_1h_est?: number | null;
+}
+
 export interface TempoMeta {
   collection_id: string;
   temporal_used: { start: string; end: string };
   bbox_used: { minLon: number; minLat: number; maxLon: number; maxLat: number };
   granules: string[];
-  mode?: string;
-  timeout_s?: number;
-  fallback_used?: boolean;
+  mode: string;
+  timeout_s: number;
+  fallback_used: boolean;
 }
+
 export interface GroundSample {
-  aqi?: number; no2?: number; o3?: number; pm25?: number; pm10?: number;
-  time_local?: string; station?: string; station_geo?: [number, number];
-  attribution?: string;
+  aqi?: number | null;
+  no2?: number | null;
+  o3?: number | null;
+  pm25?: number | null;
+  pm10?: number | null;
+  time_local?: string | null;
+  station?: string | null;
+  station_geo?: number[] | null;
+  attribution?: string | null;
+  fetched_utc?: string | null;
 }
+
 export interface ForecastPayload {
-  lat: number; lon: number; no2_seed: number;
+  lat: number;
+  lon: number;
+  no2_seed: number;
   risk: "low" | "moderate" | "high";
   ratio_peak_over_seed: number;
-  forecast: ForecastPoint[]; weather: WeatherPoint[];
-  tempo: TempoMeta; ground?: GroundSample;
+  forecast: ForecastPoint[];
+  weather: WeatherPoint[];
+  tempo: TempoMeta;
+  ground?: GroundSample | null;
 }
-
-const BASE = (import.meta.env.VITE_API_BASE as string) || "http://127.0.0.1:8000";
-
-function timeoutController(ms: number) {
-  const ctrl = new AbortController();
-  const id = setTimeout(() => { try { (ctrl as any).abort?.("timeout"); } catch { ctrl.abort(); } }, ms);
-  return { signal: ctrl.signal, clear: () => clearTimeout(id) };
-}
-
-type Mode = "fast" | "auto" | "cache";
 
 export async function getForecast(
   lat: number,
   lon: number,
-  opts?: {
-    start?: string; end?: string; bbox?: string;
-    mode?: Mode; timeoutMs?: number;
-    skipNasa?: boolean; requireNasa?: boolean;
-  }
+  opts: {
+    start?: string;
+    end?: string;
+    bbox?: string;
+    mode?: "auto" | "fast" | "cache";
+    timeoutMs?: number;
+    skipNasa?: boolean;
+    requireNasa?: boolean;
+  } = {}
 ): Promise<ForecastPayload> {
-  const q = new URLSearchParams({ lat: String(lat), lon: String(lon), mode: opts?.mode ?? "fast" });
-  if (opts?.start) q.append("start", opts.start);
-  if (opts?.end) q.append("end", opts.end);
-  if (opts?.bbox) q.append("bbox", opts.bbox);
-  if (opts?.skipNasa) q.append("skip_nasa", "true");
-  if (opts?.requireNasa) q.append("require_nasa", "true");
+  const u = new URL(`${BASE}/forecast`);
+  u.searchParams.set("lat", String(lat));
+  u.searchParams.set("lon", String(lon));
+  if (opts.mode) u.searchParams.set("mode", opts.mode);
+  if (opts.start) u.searchParams.set("start", opts.start);
+  if (opts.end) u.searchParams.set("end", opts.end);
+  if (opts.bbox) u.searchParams.set("bbox", opts.bbox);
+  if (opts.skipNasa) u.searchParams.set("skip_nasa", "true");
+  if (opts.requireNasa) u.searchParams.set("require_nasa", "true");
 
-  const { signal, clear } = timeoutController(opts?.timeoutMs ?? 30000);
-  try {
-    const res = await fetch(`${BASE}/forecast?${q.toString()}`, {
-      signal, cache: "no-store", headers: { accept: "application/json" },
-    });
-    const txt = await res.text();
-    if (!res.ok) {
-      let detail: string | undefined;
-      try { detail = JSON.parse(txt).detail; } catch {}
-      throw new Error(detail || txt || `API ${res.status}`);
-    }
-    return JSON.parse(txt) as ForecastPayload;
-  } catch (e: any) {
-    if (e?.name === "AbortError" || String(e?.message||"").toLowerCase().includes("timeout"))
-      throw new Error("Tempo esgotado ao consultar a API (timeout).");
-    throw new Error(e?.message || "Erro inesperado");
-  } finally { clear(); }
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 12000);
+
+  const res = await fetch(u.toString(), { signal: ctrl.signal });
+  clearTimeout(id);
+
+  if (!res.ok) {
+    let msg = `API ${res.status}`;
+    try {
+      const body = await res.json();
+      if (body?.detail) msg = `API ${res.status}: ${body.detail}`;
+    } catch {}
+    throw new Error(msg);
+  }
+
+  return (await res.json()) as ForecastPayload;
 }
+
+export { BASE };
