@@ -1,42 +1,46 @@
+import React from "react";
 import {
   Chart as ChartJS,
   LineElement,
   PointElement,
   LinearScale,
-  CategoryScale,
+  TimeScale,
   Tooltip,
   Legend,
+  CategoryScale,
 } from "chart.js";
 import { Line } from "react-chartjs-2";
-import type { ForecastPoint } from "../lib/api";
 
-ChartJS.register(LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
+ChartJS.register(LineElement, PointElement, LinearScale, TimeScale, Tooltip, Legend, CategoryScale);
 
-export default function ForecastChart({ data }: { data: ForecastPoint[] }) {
-  const labels = data.map(d =>
-    new Date(d.datetime_utc).toLocaleString(undefined, {
-      hour: "2-digit",
-      day: "2-digit",
-      month: "2-digit",
-    })
+export default function ForecastChart({ data }: { data: Array<{ datetime_utc: string; no2_forecast: number }> }) {
+  const labels = data.map((d) => d.datetime_utc.replace("T", " ").replace("Z", ""));
+  const series = data.map((d) => d.no2_forecast);
+  const dsColor = "rgba(96,165,250,0.9)";
+  return (
+    <div style={{ background: "#0b0f19", border: "1px solid #1f2937", borderRadius: 8, padding: 12 }}>
+      <Line
+        data={{
+          labels,
+          datasets: [
+            {
+              label: "NO₂ (u.a. relativa)",
+              data: series,
+              borderColor: dsColor,
+              backgroundColor: "rgba(96,165,250,0.25)",
+              tension: 0.25,
+            },
+          ],
+        }}
+        options={{
+          responsive: true,
+          plugins: { legend: { labels: { color: "#e5e7eb" } } },
+          scales: {
+            x: { ticks: { color: "#9ca3af", maxRotation: 0, autoSkip: true }, grid: { color: "#111827" } },
+            y: { ticks: { color: "#9ca3af" }, grid: { color: "#111827" } },
+          },
+        }}
+      />
+    </div>
   );
-  const ds = {
-    labels,
-    datasets: [
-      {
-        label: "NO₂ (forecast)",
-        data: data.map(d => d.no2_forecast),
-        tension: 0.3,
-        borderWidth: 2,
-        pointRadius: 0,
-      },
-    ],
-  };
-  const options = {
-    responsive: true,
-    plugins: { legend: { display: true } },
-    scales: { x: { ticks: { maxTicksLimit: 12 } } },
-  } as const;
-
-  return <div style={{ width: "100%", height: 300 }}><Line data={ds} options={options} /></div>;
 }
