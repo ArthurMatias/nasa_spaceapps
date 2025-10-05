@@ -28,7 +28,6 @@ tempo_data/
 *.nc4
 *.h5
 *.hdf5
-.env
 __pycache__/
 
 # ambiente para rodar
