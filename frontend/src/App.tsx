@@ -63,26 +63,49 @@ function computeApiIndex(p: any): number {
   return Math.round(v);
 }
 
+function bandColor(v: number) {
+  if (v >= 70) return "#ef4444";
+  if (v >= 40) return "#f59e0b";
+  return "#10b981";
+}
+
 function PollutionIndexCard({ value }: { value: number }) {
-  const label = value >= 70 ? "High" : value >= 40 ? "Moderate" : "Good";
-  const track = "#1f2937";
-  const fill = value >= 70 ? "#ef4444" : value >= 40 ? "#f59e0b" : "#10b981";
+  const v = Math.max(0, Math.min(100, value));
+  const label = v >= 70 ? "High" : v >= 40 ? "Moderate" : "Good";
+  const color = bandColor(v);
+
   return (
-    <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-      <div style={{ background: "#0b0f19", border: "1px solid #1f2937", borderRadius: 12, padding: "12px 16px", width: 120, textAlign: "center" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "160px 1fr 70px", alignItems: "center", gap: 16 }}>
+      <div style={{ background: "#0b0f19", border: "1px solid #1f2937", borderRadius: 12, padding: "12px 16px", textAlign: "center" }}>
         <div style={{ fontSize: 12, color: "#9ca3af" }}>Air Pollution Index</div>
-        <div style={{ fontSize: 28, fontWeight: 800 }}>{value}</div>
+        <div style={{ fontSize: 32, fontWeight: 800, lineHeight: 1 }}>{v}</div>
       </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ height: 10, background: track, borderRadius: 999, overflow: "hidden" }}>
-          <div style={{ width: `${value}%`, height: "100%", background: fill }} />
+
+      <div style={{ position: "relative" }}>
+        <div style={{ height: 14, background: "#1f2937", borderRadius: 999, overflow: "hidden" }}>
+          <div
+            style={{
+              width: `${v}%`,
+              height: "100%",
+              background: color,
+              transition: "width 300ms ease",
+            }}
+          />
         </div>
-        <div style={{ display: "flex", gap: 16, marginTop: 6, color: "#9ca3af", fontSize: 12 }}>
-          <span>Good</span>
-          <span>Moderate</span>
-          <span>High</span>
-          <span style={{ marginLeft: "auto", color: fill }}>{label}</span>
+
+        <div style={{ position: "relative", height: 18, marginTop: 8, fontSize: 12, color: "#9ca3af" }}>
+          <div style={{ position: "absolute", left: 0, transform: "translateX(-0%)" }}>Good</div>
+          <div style={{ position: "absolute", left: "40%", transform: "translateX(-50%)" }}>Moderate</div>
+          <div style={{ position: "absolute", left: "70%", transform: "translateX(-50%)" }}>High</div>
+
+          <div style={{ position: "absolute", top: -22, left: "40%", width: 2, height: 20, background: "#374151", borderRadius: 1 }} />
+          <div style={{ position: "absolute", top: -22, left: "70%", width: 2, height: 20, background: "#374151", borderRadius: 1 }} />
+          <div style={{ position: "absolute", top: -6, left: "100%", width: 2, height: 14, background: "#374151", borderRadius: 1 }} />
         </div>
+      </div>
+
+      <div style={{ textAlign: "right", fontWeight: 700, color }}>
+        {label}
       </div>
     </div>
   );
@@ -202,11 +225,11 @@ export default function App() {
             {loading ? "Refreshing..." : "Refresh"}
           </button>
 
-          {data?.tempo?.fallback_used && (
+          {/* {data?.tempo?.fallback_used && (
             <div style={{ marginTop: 12, padding: 12, background: "#111827", border: "1px solid #374151", borderRadius: 8, color: "#e5e7eb" }}>
               Using fallback. No TEMPO granule found for this window/bbox.
             </div>
-          )}
+          )} */}
 
           {err && (
             <div style={{ marginTop: 12, padding: 10, background: "#7f1d1d", borderRadius: 8, border: "1px solid #991b1b" }}>
