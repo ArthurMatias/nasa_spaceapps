@@ -73,7 +73,7 @@ export default function App() {
         Clique em um estado para consultar a previsão local de NO₂. Ative “Usar NASA (TEMPO)”.
       </p>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "10px 0 16px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "30px 0  0 0px", padding: 16 }}>
         <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <input type="checkbox" checked={useNASA} onChange={(e) => setUseNASA(e.target.checked)} />
           <span>Usar NASA (TEMPO)</span>
