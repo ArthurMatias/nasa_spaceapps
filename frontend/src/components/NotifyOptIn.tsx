@@ -37,8 +37,8 @@ export default function NotifyOptIn({ nextCritical, title = "Risco alto de NO₂
   return perm === "granted" ? (
     <div style={{ fontSize: 13, color: "#9ca3af" }}>Notificações ativas para o próximo pico (&lt; 2h).</div>
   ) : (
-    <button onClick={request} style={{ background: "#0ea5e9", border: "1px solid #0284c7", padding: "6px 12px", borderRadius: 8, color: "#fff", cursor: "pointer" }}>
-      Ativar notificações
+    <button onClick={request} style={{width: '100%', background: "#0ea5e9", border: "1px solid #0284c7", padding: "6px 12px", borderRadius: 8, color: "#fff", cursor: "pointer" }}>
+      Enable Notifications
     </button>
   );
 }
