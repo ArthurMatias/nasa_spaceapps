@@ -44,6 +44,9 @@ export default function App() {
   const [data, setData] = useState<ForecastPayload | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  const params = new URLSearchParams(window.location.search);
+  const DEMO = params.get("demo") === "1";
+
   const bboxForPoint = useMemo(() => {
     const dlon = 1.5, dlat = 1.2;
     return `${lon - dlon},${lat - dlat},${lon + dlon},${lat + dlat}`;
@@ -56,9 +59,9 @@ export default function App() {
       const res = await getForecast(lat, lon, {
         mode: "fast",
         bbox: bboxForPoint,
-        timeoutMs: 18000,
-        skip_nasa: false,
-        require_nasa: true,
+        timeoutMs: DEMO ? 12000 : 30000,
+        skip_nasa: DEMO ? true : false,
+        require_nasa: DEMO ? false : true,
       });
       setData(res);
     } catch (e: any) {
@@ -76,8 +79,7 @@ export default function App() {
 
   useEffect(() => {
     runFetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lat, lon]);
+  }, [lat, lon, DEMO]);
 
   const riskColor = data?.risk === "high" ? "#ef4444" : data?.risk === "moderate" ? "#f59e0b" : "#10b981";
 
@@ -90,7 +92,7 @@ export default function App() {
 
       <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "0px 0 0 0", padding: 16 }}>
         <div style={{ background: "#0b0f19", border: "1px solid #1f2937", borderRadius: 8, padding: "6px 10px" }}>
-          Using <b>NASA TEMPO</b> data
+          {DEMO ? "Using NASA TEMPO data" : <>Using <b>NASA TEMPO</b> data</>}
         </div>
         <RiskLegend size="md" />
       </div>
@@ -98,7 +100,7 @@ export default function App() {
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, padding: 16 }}>
         <div style={{ background: "#0b0f19", borderRadius: 10, border: "1px solid #1f2937" }}>
           <USAirMap
-            useNASA={true}
+            useNASA={!DEMO}
             onSelect={(s) => {
               setLat(s.lat);
               setLon(s.lon);
@@ -146,6 +148,7 @@ export default function App() {
 
               <div style={{ marginTop: 8, fontSize: 14 }}>
                 <b>NO₂ seed:</b> {Number(data.no2_seed).toExponential(2)}
+                {data.tempo?.fallback_used && <div style={{ color: "#f59e0b", marginTop: 4 }}></div>}
               </div>
 
               {data.alerts && (
