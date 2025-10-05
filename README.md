@@ -142,7 +142,7 @@ npm run dev
 
 * Dados: © NASA / TEMPO Mission; OpenWeather; AQICN.
 * Código: MIT (ajuste conforme regras do hackathon).
-* Equipe: inclua nomes/contatos.
+* Equipe: Orbitantes.
 
 ## Roadmap
 
