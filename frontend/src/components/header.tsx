@@ -22,8 +22,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     textAlign: "center",
   },
   title: {
-    margin: 0,
-    fontSize: "1.8rem",
+    margin:-10,
+    fontSize: "1.2rem",
   },
 };
 
