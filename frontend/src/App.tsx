@@ -40,14 +40,12 @@ export default function App() {
   const [lat, setLat] = useState(39.7392);
   const [lon, setLon] = useState(-104.9903);
   const [stateName, setStateName] = useState<string>("Colorado");
-  const [useNASA, setUseNASA] = useState<boolean>(false);
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<ForecastPayload | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const bboxForPoint = useMemo(() => {
-    const dlon = 1.5,
-      dlat = 1.2;
+    const dlon = 1.5, dlat = 1.2;
     return `${lon - dlon},${lat - dlat},${lon + dlon},${lat + dlat}`;
   }, [lat, lon]);
 
@@ -58,13 +56,18 @@ export default function App() {
       const res = await getForecast(lat, lon, {
         mode: "fast",
         bbox: bboxForPoint,
-        timeoutMs: 15000,
-        skip_nasa: useNASA ? false : true,
+        timeoutMs: 18000,
+        skip_nasa: false,
+        require_nasa: true,
       });
       setData(res);
     } catch (e: any) {
       setData(null);
-      setErr(e?.message ?? "Unexpected error");
+      const msg =
+        e?.status === 424
+          ? "TEMPO data not available for this time/window. Try a different hour or enlarge the bbox."
+          : e?.message ?? "Unexpected error";
+      setErr(msg);
       console.error(e);
     } finally {
       setLoading(false);
@@ -74,7 +77,7 @@ export default function App() {
   useEffect(() => {
     runFetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lat, lon, useNASA]);
+  }, [lat, lon]);
 
   const riskColor = data?.risk === "high" ? "#ef4444" : data?.risk === "moderate" ? "#f59e0b" : "#10b981";
 
@@ -85,21 +88,20 @@ export default function App() {
         BREATH • <span style={{ color: "#60a5fa" }}>A NASA PROJECT</span>
       </h1>
       <p className="header_txt" style={{ marginTop: -6 }}>
-        Click a state to inspect the local NO₂ forecast. Toggle “Use NASA (TEMPO)” to try satellite seeding.
+        Click a state to inspect the local forecast seeded with NASA TEMPO. TEMPO usage is enforced.
       </p>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "30px 0  0 0px", padding: 16 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <input type="checkbox" checked={useNASA} onChange={(e) => setUseNASA(e.target.checked)} />
-          <span>Use NASA (TEMPO)</span>
-        </label>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "30px 0 0 0", padding: 16 }}>
+        <div style={{ background: "#0b0f19", border: "1px solid #1f2937", borderRadius: 8, padding: "6px 10px" }}>
+          Using <b>NASA TEMPO</b> data
+        </div>
         <RiskLegend size="md" />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, padding: 16 }}>
         <div style={{ background: "#0b0f19", borderRadius: 10, border: "1px solid #1f2937" }}>
           <USAirMap
-            useNASA={useNASA}
+            useNASA={true}
             onSelect={(s) => {
               setLat(s.lat);
               setLon(s.lon);
@@ -147,7 +149,6 @@ export default function App() {
 
               <div style={{ marginTop: 8, fontSize: 14 }}>
                 <b>NO₂ seed:</b> {Number(data.no2_seed).toExponential(2)}
-                {data.tempo?.fallback_used && <div style={{ color: "#f59e0b", marginTop: 4 }}>fallback used</div>}
               </div>
 
               {data.alerts && (
