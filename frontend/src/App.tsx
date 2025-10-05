@@ -6,6 +6,7 @@ import AlertBadge from "./components/AlertBadge";
 import RiskLegend from "./components/RiskLegend";
 import CitationPanel from "./components/CitationPanel";
 import NotifyOptIn from "./components/NotifyOptIn";
+import CityPicker from "./components/CityPicker";
 
 function downloadCSV(filename: string, rows: any[]) {
   if (!rows?.length) return;
@@ -62,7 +63,7 @@ export default function App() {
   const riskColor = data?.risk === "high" ? "#ef4444" : data?.risk === "moderate" ? "#f59e0b" : "#10b981";
 
   return (
-    <main style={{ maxWidth: 1200, margin: "0 auto", padding: 16, color: "#e5e7eb" }}>
+    <main className="w-screen" style={{margin: "0 auto", padding: 16, color: "#e5e7eb" }}>
       <h1 style={{ fontSize: 44, margin: "12px 0" }}>
         Air Quality • <span style={{ color: "#60a5fa" }}>TEMPO</span> + Weather
       </h1>
@@ -78,7 +79,7 @@ export default function App() {
         <RiskLegend size="md" />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16}}>
         <div style={{ background: "#0b0f19", borderRadius: 10, border: "1px solid #1f2937" }}>
           <USAirMap
             useNASA={useNASA}
@@ -90,7 +91,7 @@ export default function App() {
           />
         </div>
 
-        <div style={{ background: "#0b0f19", borderRadius: 10, border: "1px solid #1f2937", padding: 16 }}>
+        <div style={{ background: "#0b0f19", borderRadius: 10, border: "1px solid #1f2937", padding: 16}}>
           <h2 style={{ marginTop: 0 }}>Detalhes</h2>
           <div style={{ opacity: 0.9, marginBottom: 8 }}>{stateName}</div>
           <div style={{ fontSize: 13, color: "#9ca3af", marginBottom: 8 }}>

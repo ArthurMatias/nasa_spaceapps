@@ -78,7 +78,7 @@ export default function USAirMap({ onSelect, useNASA = false }: Props) {
         <div style={{ fontSize: 14, color: "#9ca3af" }}>{loadingMap ? "Atualizando mapa..." : "Clique em um estado para ver detalhes"}</div>
         <div style={{ fontSize: 12, color: "#9ca3af" }}>Fonte de risco: /states/summary</div>
       </div>
-      <svg ref={svgRef} width={width} height={height} style={{ display: "block", width: "100%", height: "auto" }}>
+      <svg ref={svgRef} width={width} height={height} style={{ display: "block", height: "auto" }}>
         <rect x={0} y={0} width={width} height={height} fill="#0b0f19" />
         {features.map((f, i) => {
           const name: string = f.properties?.name || `S${i}`;
