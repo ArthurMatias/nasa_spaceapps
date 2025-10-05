@@ -87,11 +87,8 @@ export default function App() {
       <h1 style={{ fontSize: 40, margin: "10px 0" }}>
         BREATH • <span style={{ color: "#60a5fa" }}>A NASA PROJECT</span>
       </h1>
-      <p className="header_txt" style={{ marginTop: -6 }}>
-        Click a state to inspect the local forecast seeded with NASA TEMPO. TEMPO usage is enforced.
-      </p>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "30px 0 0 0", padding: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "0px 0 0 0", padding: 16 }}>
         <div style={{ background: "#0b0f19", border: "1px solid #1f2937", borderRadius: 8, padding: "6px 10px" }}>
           Using <b>NASA TEMPO</b> data
         </div>
