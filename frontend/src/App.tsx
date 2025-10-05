@@ -6,8 +6,11 @@ import AlertBadge from "./components/AlertBadge";
 import RiskLegend from "./components/RiskLegend";
 import CitationPanel from "./components/CitationPanel";
 import NotifyOptIn from "./components/NotifyOptIn";
+<<<<<<< Updated upstream
 import Header from "./components/header";
 import "./App.css"
+=======
+>>>>>>> Stashed changes
 
 function downloadCSV(filename: string, rows: any[]) {
   if (!rows?.length) return;
@@ -24,6 +27,19 @@ function downloadCSV(filename: string, rows: any[]) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+function mergeByTime(a: any[], b: any[]) {
+  const map = new Map<string, any>();
+  for (const r of a ?? []) map.set(r.datetime_utc, { ...r });
+  for (const r of b ?? []) {
+    const prev = map.get(r.datetime_utc) ?? { datetime_utc: r.datetime_utc };
+    map.set(r.datetime_utc, { ...prev, ...r });
+  }
+  return Array.from(map.values()).sort(
+    (x, y) => new Date(x.datetime_utc).getTime() - new Date(y.datetime_utc).getTime()
+  );
+}
+
 
 export default function App() {
   const [lat, setLat] = useState(39.7392);
@@ -160,7 +176,16 @@ export default function App() {
               </div>
 
               <h3 style={{ marginTop: 16 }}>Próximas horas</h3>
-              <ForecastChart data={data.forecast} />
+              <ForecastChart
+                data={mergeByTime(data.forecast, data.o3_forecast)}
+                series={[
+                  { key: "no2_forecast", name: "NO₂" },
+                  { key: "o3_forecast", name: "O₃" },
+                  { key: "hcho_forecast", name: "HCHO" },
+                  { key: "ai", name: "Aerosol Index" },
+                  { key: "pm25_forecast", name: "PM2.5" },
+                ]}
+              />
 
               <CitationPanel tempo={data.tempo as any} />
 
