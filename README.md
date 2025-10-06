@@ -1,73 +1,73 @@
 # BREATH — README (Hackathon)
 
-## Visão geral
+## Overview
 
-BREATH é uma aplicação web que traduz dados de satélite **NASA TEMPO** e **previsão do tempo** em alertas simples de qualidade do ar. O usuário clica no mapa dos EUA, vê a previsão horária de poluentes (NO₂, O₃, HCHO, PM2.5, AI), recebe recomendações práticas e pode ativar notificações para janelas de maior risco.
+BREATH is a web application that translates **NASA TEMPO** satellite data and **weather forecasts** into simple air quality alerts. The user can click on a US map to view hourly pollutant forecasts (NO₂, O₃, HCHO, PM2.5, AI), receive practical recommendations, and enable notifications for high-risk windows.
 
-## Impacto
+## Impact
 
-Qualidade do ar impacta saúde, produtividade e decisões do dia a dia. O BREATH aproxima ciência e cidadão, oferecendo previsões de **24–72h** fáceis de entender, baseadas em observações orbitais e modelos meteorológicos.
+Air quality affects health, productivity, and daily decisions. BREATH bridges the gap between science and citizens by offering easy-to-understand **24–72h** forecasts based on orbital observations and weather models.
 
-## Arquitetura
+## Architecture
 
-* **Frontend**: Vite + React + Recharts (mapa D3/topojson, gráficos, alertas).
-* **Backend**: FastAPI (Python); integra NASA TEMPO, OpenWeather e AQICN.
-* **Dados/Modelagem**:
+* **Frontend**: Vite + React + Recharts (D3/topojson map, charts, alerts).
+* **Backend**: FastAPI (Python); integrates NASA TEMPO, OpenWeather, and AQICN.
+* **Data/Modeling**:
 
-  * Semente de NO₂ a partir de granules TEMPO (L3 preferencial; fallback L2).
-  * Ajuste por meteorologia (vento, nuvem, chuva).
-  * Heurísticas leves para O₃, HCHO, Aerosol Index (AI) e PM2.5 quando não houver medição direta.
-  * **RiskScore 0–100** (Low/Moderate/High) e “próxima hora crítica”.
+  * NO₂ seed value from TEMPO granules (L3 preferred; L2 fallback).
+  * Adjustments based on meteorological data (wind, cloud cover, rain).
+  * Lightweight heuristics for O₃, HCHO, Aerosol Index (AI), and PM2.5 when direct measurements are unavailable.
+  * **RiskScore 0–100** (Low/Moderate/High) and "next critical hour" alerts.
 
-## Requisitos
+## Requirements
 
 * **Python** 3.10+
-* **Node.js** 18+ e **npm**
-* Dependências Python (netCDF/hdf5 podem ser necessários no Windows):
+* **Node.js** 18+ and **npm**
+* Python dependencies (netCDF/hdf5 native libraries may be required on Windows):
   `netCDF4`, `h5netcdf`, `xarray`, `numpy`, `pandas`, `matplotlib`, `fastapi`, `uvicorn`, `python-dotenv`
-* **Chaves/credenciais**:
+* **API Keys/Credentials**:
 
-  * `OPENWEATHER_API_KEY` (OpenWeather)
-  * `AQICN_TOKEN` (aqicn.org)
-  * `EARTHDATA_USERNAME` / `EARTHDATA_PASSWORD` **ou** `EARTHDATA_TOKEN` (NASA Earthdata para TEMPO)
+  * `OPENWEATHER_API_KEY` (from OpenWeather)
+  * `AQICN_TOKEN` (from aqicn.org)
+  * `EARTHDATA_USERNAME` / `EARTHDATA_PASSWORD` **or** `EARTHDATA_TOKEN` (from NASA Earthdata for TEMPO)
 
-## Variáveis de Ambiente — `backend/.env`
+## Environment Variables — `backend/.env`
 
 ```ini
-OPENWEATHER_API_KEY=coloque-sua-chave
-AQICN_TOKEN=coloque-seu-token
+OPENWEATHER_API_KEY=your-key-goes-here
+AQICN_TOKEN=your-token-goes-here
 TEMPO_TIMEOUT_S=12
 OPENWEATHER_TIMEOUT_S=10
 NO2_SEED_FALLBACK=3.0e15
-EARTHDATA_USERNAME=seu_usuario
-EARTHDATA_PASSWORD=sua_senha
-# EARTHDATA_TOKEN=opcional
+EARTHDATA_USERNAME=your_username
+EARTHDATA_PASSWORD=your_password
+# EARTHDATA_TOKEN=optional
 ```
 
-## Variáveis de Ambiente — `frontend/.env`
+## Environment Variables — `frontend/.env`
 
 ```ini
 VITE_API_BASE=http://127.0.0.1:8000
 ```
 
-## Como rodar — Backend
+## How to Run — Backend
 
 ```bash
 cd backend
 python -m venv .venv
-# Ative o venv (Windows: .venv\Scripts\activate | Linux/Mac: source .venv/bin/activate)
+# Activate the venv (Windows: .venv\Scripts\activate | Linux/Mac: source .venv/bin/activate)
 pip install -r requirements.txt
 uvicorn app:app --reload --port 8000
 ```
 
-**Endpoints principais**
+**Main Endpoints**
 
 * `GET /health`
 * `GET /forecast?lat={}&lon={}&bbox={minLon,minLat,maxLon,maxLat}&mode=fast&skip_nasa=false&require_nasa=true`
 * `GET /states/summary?skip_nasa=true`
 * `GET /tempo/latest_overlay.png?bbox=-125,24,-66,50&hours=8`
 
-## Como rodar — Frontend
+## How to Run — Frontend
 
 ```bash
 cd frontend
@@ -75,25 +75,24 @@ npm install
 npm run dev
 # Abra http://localhost:5173
 ```
+**Demo Tip**: append `?demo=1` to the frontend URL to avoid waiting for NASA data (it uses fallbacks and shorter timeouts).
 
-**Dica demo**: acrescente `?demo=1` à URL do frontend para evitar espera pela NASA (usa fallback e timeouts menores).
+## Quick Usage
 
-## Uso rápido
+1. Start the backend (port 8000) and frontend (port 5173).
+2. In the UI: click on a state → sets lat/lon → click **Refresh**.
+3. View the **RiskScore (0–100)**, risk range, per-pollutant chart, and recommendations.
+4. Enable notifications to get alerts for the **next critical hour (<2h)**.
 
-1. Suba backend (8000) e frontend (5173).
-2. Na UI: clique num estado → define lat/lon → **Refresh**.
-3. Veja **RiskScore (0–100)**, faixa de risco, gráfico por espécie, recomendações.
-4. Ative notificações para aviso de **próxima hora crítica (<2h)**.
+## Units (summary)
 
-## Unidades (resumo)
+* **NO₂** (TEMPO, vertical column): ~mol/m² (used as a relative seed).
+* **O₃ / HCHO**: derived/heuristic values for visual comparison.
+* **PM2.5**: µg/m³ (estimated if no direct data is available).
+* **Aerosol Index (AI)**: dimensionless (0+), qualitative indicator.
+* **RiskScore**: 0–100 index (Low/Moderate/High) for laypeople.
 
-* **NO₂** (TEMPO, coluna vertical): ~mol/m² (usado como semente relativa).
-* **O₃ / HCHO**: valores derivados/heurísticos para comparação visual.
-* **PM2.5**: µg/m³ (estimado se não houver dado direto).
-* **Aerosol Index (AI)**: adimensional (0+), indicador qualitativo.
-* **RiskScore**: índice 0–100 (Low/Moderate/High) para leigos.
-
-## Exemplo de resposta `/forecast` (resumo)
+##  Example Response `/forecast` (summary)
 
 ```json
 {
@@ -129,24 +128,24 @@ npm run dev
 
 ## Troubleshooting
 
-* **Cannot localize tz-aware Timestamp**: garanta que `datetime_utc` é sempre timezone-aware (UTC). Use `tz_localize("UTC")` apenas para timestamps *naive*; use `tz_convert("UTC")` apenas para *tz-aware*.
-* **TEMPO lento/ausente**: ajuste `TEMPO_TIMEOUT_S` e `NO2_SEED_FALLBACK`; para diagnóstico rápido, use `skip_nasa=true`.
-* **netCDF4 no Windows**: pode exigir wheels pré-compilados ou instalação de HDF5/NetCDF.
+* **Cannot localize tz-aware Timestamp**: Ensure `datetime_utc` is always timezone-aware (UTC). Use `tz_localize("UTC")` only on naive timestamps; use `tz_convert("UTC")` only on *tz-aware* ones.
+* **TEMPO lento/ausente**: Adjust `TEMPO_TIMEOUT_S` and `NO2_SEED_FALLBACK`; for quick `skip_nasa=true` query parameter.
+* **netCDF4 no Windows**:  May require pre-compiled wheels or a separate installation of the HDF5/NetCDF libraries.
 
 ## Scripts/Recursos
 
-* Botões de exportação CSV no frontend.
-* `/states/summary` para pintar o mapa com Low/Moderate/High.
+* CSV export buttons on the frontend
+* `/states/summary` endpoint to color the map with Low/Moderate/High risk levels.
 
-## Licença e créditos
+## License and Credits
 
-* Dados: © NASA / TEMPO Mission; OpenWeather; AQICN.
-* Código: MIT (ajuste conforme regras do hackathon).
-* Equipe: Orbitantes.
+* Data: © NASA / TEMPO Mission; OpenWeather; AQICN.
+* Code: MIT License (adjust according to hackathon rules).
+* Team: Orbitantes.
 
 ## Roadmap
 
-* Calibração por espécie (unidades absolutas).
-* Malha urbana por cidade.
-* Notificações push progressivas.
-* Explicabilidade do risco com fatores meteorológicos.
+* Per-pollutant calibration (absolute units).
+* City-level urban grid.
+* Progressive push notifications.
+* Risk explainability using weather factors.
